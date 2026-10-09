@@ -76,3 +76,18 @@ Native-agent implementations remain subsequent extraction slices.
   Installation-secret creation is atomic and late credential reads cannot replace
   a newly written cache entry. Preference suites and Keychain service names remain
   per host. Tests never read or change existing application credentials.
+
+- `AIModelCatalog`: 47 curated API entries with separate persisted identity,
+  model name, label, capabilities, availability, and execution defaults. It also
+  owns provider-scoped live reconciliation, legacy aliases, identity hex coding,
+  stable scalar ordering, fetched-list caps, and synchronized override snapshots.
+  This target depends only on core contracts; it reads no preferences or SDKs.
+- `AIModelCatalogStorage`: host-injected live model cache, legacy JSON dictionary
+  codec, filtering, and atomic provider transactions. Supply preferences, storage
+  key/provider mapping, and notification callback. Unknown provider keys survive;
+  malformed data is not rewritten by reads. Override persistence remains injected,
+  with revisions for hosts to reject reordered callbacks outside locks.
+
+Catalog fixtures capture the pre-extraction identities/labels/defaults; publishing
+this package does not select new model versions. Hosts retain app enum adaptation,
+stored selections, preference namespaces, and native-provider runtime policy.

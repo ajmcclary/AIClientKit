@@ -1,0 +1,378 @@
+[
+  {
+    "case" : "gpt5",
+    "defaultReasoningEffort" : "medium",
+    "displayName" : "GPT-5.2 Med",
+    "id" : "gpt-5.2",
+    "modelName" : "gpt-5.2",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt5Low",
+    "defaultReasoningEffort" : "low",
+    "displayName" : "GPT-5.2 Low",
+    "id" : "gpt-5.2-low",
+    "modelName" : "gpt-5.2-low",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt5High",
+    "defaultReasoningEffort" : "high",
+    "displayName" : "GPT-5.2 High",
+    "id" : "gpt-5.2-high",
+    "modelName" : "gpt-5.2-high",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt5XHigh",
+    "defaultReasoningEffort" : "xhigh",
+    "displayName" : "GPT-5.2 XHigh",
+    "id" : "gpt-5.2-xhigh",
+    "modelName" : "gpt-5.2-xhigh",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt54",
+    "defaultReasoningEffort" : "medium",
+    "displayName" : "GPT-5.5 Med",
+    "id" : "gpt-5.5",
+    "modelName" : "gpt-5.5",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt54Low",
+    "defaultReasoningEffort" : "low",
+    "displayName" : "GPT-5.5 Low",
+    "id" : "gpt-5.5-low",
+    "modelName" : "gpt-5.5",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt54High",
+    "defaultReasoningEffort" : "high",
+    "displayName" : "GPT-5.5 High",
+    "id" : "gpt-5.5-high",
+    "modelName" : "gpt-5.5",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt54XHigh",
+    "defaultReasoningEffort" : "xhigh",
+    "displayName" : "GPT-5.5 XHigh",
+    "id" : "gpt-5.5-xhigh",
+    "modelName" : "gpt-5.5",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt54Mini",
+    "defaultReasoningEffort" : "",
+    "displayName" : "GPT-5.4 Mini",
+    "id" : "gpt-5.4-mini",
+    "modelName" : "gpt-5.4-mini",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt54MiniLow",
+    "defaultReasoningEffort" : "",
+    "displayName" : "GPT-5.4 Mini Low",
+    "id" : "gpt-5.4-mini-low",
+    "modelName" : "gpt-5.4-mini",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt54MiniHigh",
+    "defaultReasoningEffort" : "",
+    "displayName" : "GPT-5.4 Mini High",
+    "id" : "gpt-5.4-mini-high",
+    "modelName" : "gpt-5.4-mini",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt54MiniXHigh",
+    "defaultReasoningEffort" : "",
+    "displayName" : "GPT-5.4 Mini XHigh",
+    "id" : "gpt-5.4-mini-xhigh",
+    "modelName" : "gpt-5.4-mini",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt54Nano",
+    "defaultReasoningEffort" : "",
+    "displayName" : "GPT-5.4 Nano",
+    "id" : "gpt-5.4-nano",
+    "modelName" : "gpt-5.4-nano",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt5CodexLow",
+    "defaultReasoningEffort" : "low",
+    "displayName" : "GPT-5.1 Codex Max Low",
+    "id" : "gpt-5.1-codex-max-low",
+    "modelName" : "gpt-5.1-codex-max",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt5CodexMed",
+    "defaultReasoningEffort" : "medium",
+    "displayName" : "GPT-5.1 Codex Max Med",
+    "id" : "gpt-5.1-codex-max",
+    "modelName" : "gpt-5.1-codex-max",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt5CodexHigh",
+    "defaultReasoningEffort" : "high",
+    "displayName" : "GPT-5.1 Codex Max High",
+    "id" : "gpt-5.1-codex-max-high",
+    "modelName" : "gpt-5.1-codex-max",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt5CodexXHigh",
+    "defaultReasoningEffort" : "xhigh",
+    "displayName" : "GPT-5.1 Codex Max XHigh",
+    "id" : "gpt-5.1-codex-max-xhigh",
+    "modelName" : "gpt-5.1-codex-max",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt5Pro",
+    "defaultReasoningEffort" : "high",
+    "displayName" : "GPT-5.2 Pro",
+    "id" : "gpt-5.2-pro",
+    "modelName" : "gpt-5.2-pro",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt5ProXHigh",
+    "defaultReasoningEffort" : "xhigh",
+    "displayName" : "GPT-5.2 Pro XHigh",
+    "id" : "gpt-5.2-pro-xhigh",
+    "modelName" : "gpt-5.2-pro",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt54Pro",
+    "defaultReasoningEffort" : "high",
+    "displayName" : "GPT-5.5 Pro",
+    "id" : "gpt-5.5-pro",
+    "modelName" : "gpt-5.5-pro",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "gpt54ProXHigh",
+    "defaultReasoningEffort" : "xhigh",
+    "displayName" : "GPT-5.5 Pro XHigh",
+    "id" : "gpt-5.5-pro-xhigh",
+    "modelName" : "gpt-5.5-pro",
+    "provider" : "openAI"
+  },
+  {
+    "case" : "claude45Haiku",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Claude Haiku 4.5",
+    "id" : "claude-haiku-4-5",
+    "modelName" : "claude-haiku-4-5",
+    "provider" : "anthropic"
+  },
+  {
+    "case" : "claude4Sonnet",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Claude Sonnet 4.5",
+    "id" : "claude-sonnet-4-5-20250929",
+    "modelName" : "claude-sonnet-4-5-20250929",
+    "provider" : "anthropic"
+  },
+  {
+    "case" : "claude4SonnetThinking",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Claude Sonnet 4.5 Thinking",
+    "id" : "claude-sonnet-4-5-20250929-thinking",
+    "modelName" : "claude-sonnet-4-5-20250929-thinking",
+    "provider" : "anthropic"
+  },
+  {
+    "case" : "claude4SonnetThinkingMax",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Claude Sonnet 4.5 Thinking Max",
+    "id" : "claude-sonnet-4-5-20250929-thinking-max",
+    "modelName" : "claude-sonnet-4-5-20250929-thinking-max",
+    "provider" : "anthropic"
+  },
+  {
+    "case" : "claude4Opus",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Claude Opus 4.6",
+    "id" : "claude-opus-4-6",
+    "modelName" : "claude-opus-4-6",
+    "provider" : "anthropic"
+  },
+  {
+    "case" : "claude4OpusThinking",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Claude Opus 4.6 Thinking",
+    "id" : "claude-opus-4-6-thinking",
+    "modelName" : "claude-opus-4-6-thinking",
+    "provider" : "anthropic"
+  },
+  {
+    "case" : "gemini35Flash",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Gemini 3.5 Flash",
+    "id" : "gemini-3.5-flash",
+    "modelName" : "gemini-3.5-flash",
+    "provider" : "gemini"
+  },
+  {
+    "case" : "geminiFlash25",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Gemini 2.5 Flash",
+    "id" : "gemini-2.5-flash",
+    "modelName" : "gemini-2.5-flash",
+    "provider" : "gemini"
+  },
+  {
+    "case" : "geminiFlash25LitePreview",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Gemini 2.5 Flash Lite Preview 06-17",
+    "id" : "gemini-2.5-flash-lite-preview-06-17",
+    "modelName" : "gemini-2.5-flash-lite-preview-06-17",
+    "provider" : "gemini"
+  },
+  {
+    "case" : "geminiPro25",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Gemini 2.5 Pro",
+    "id" : "gemini-2.5-pro",
+    "modelName" : "gemini-2.5-pro",
+    "provider" : "gemini"
+  },
+  {
+    "case" : "gemini3p1ProPreview",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Gemini 3.1 Pro Preview",
+    "id" : "gemini-3.1-pro-preview",
+    "modelName" : "gemini-3.1-pro-preview",
+    "provider" : "gemini"
+  },
+  {
+    "case" : "gemini3FlashPreview",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Gemini 3.0 Flash Preview",
+    "id" : "gemini-3-flash-preview",
+    "modelName" : "gemini-3-flash-preview",
+    "provider" : "gemini"
+  },
+  {
+    "case" : "deepseekChat",
+    "defaultReasoningEffort" : "",
+    "displayName" : "DeepSeek V4 Flash",
+    "id" : "deepseek-v4-flash",
+    "modelName" : "deepseek-v4-flash",
+    "provider" : "deepseek"
+  },
+  {
+    "case" : "deepseekReasoner",
+    "defaultReasoningEffort" : "",
+    "displayName" : "DeepSeek V4 Flash Thinking",
+    "id" : "deepseek-reasoner",
+    "modelName" : "deepseek-reasoner",
+    "provider" : "deepseek"
+  },
+  {
+    "case" : "deepseekV4Pro",
+    "defaultReasoningEffort" : "",
+    "displayName" : "DeepSeek V4 Pro",
+    "id" : "deepseek-v4-pro",
+    "modelName" : "deepseek-v4-pro",
+    "provider" : "deepseek"
+  },
+  {
+    "case" : "zaiGLM52",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Z.AI GLM-5.2",
+    "id" : "glm-5.2",
+    "modelName" : "glm-5.2",
+    "provider" : "zAI"
+  },
+  {
+    "case" : "zaiGLM52_1m",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Z.AI GLM-5.2 (1M)",
+    "id" : "glm-5.2[1m]",
+    "modelName" : "glm-5.2[1m]",
+    "provider" : "zAI"
+  },
+  {
+    "case" : "zaiGLM5",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Z.AI GLM-5.1",
+    "id" : "glm-5.1",
+    "modelName" : "glm-5.1",
+    "provider" : "zAI"
+  },
+  {
+    "case" : "zaiGLM5_0",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Z.AI GLM-5",
+    "id" : "glm-5",
+    "modelName" : "glm-5",
+    "provider" : "zAI"
+  },
+  {
+    "case" : "zaiGLM5Turbo",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Z.AI GLM-5-Turbo",
+    "id" : "glm-5-turbo",
+    "modelName" : "glm-5-turbo",
+    "provider" : "zAI"
+  },
+  {
+    "case" : "zaiGLM47",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Z.AI GLM-4.7",
+    "id" : "glm-4.7",
+    "modelName" : "glm-4.7",
+    "provider" : "zAI"
+  },
+  {
+    "case" : "zaiGLM47Flash",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Z.AI GLM-4.7 Flash",
+    "id" : "glm-4.7-flash",
+    "modelName" : "glm-4.7-flash",
+    "provider" : "zAI"
+  },
+  {
+    "case" : "zaiGLM46",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Z.AI GLM-4.6",
+    "id" : "glm-4.6",
+    "modelName" : "glm-4.6",
+    "provider" : "zAI"
+  },
+  {
+    "case" : "zaiGLM45",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Z.AI GLM-4.5",
+    "id" : "glm-4.5",
+    "modelName" : "glm-4.5",
+    "provider" : "zAI"
+  },
+  {
+    "case" : "zaiGLM45Air",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Z.AI GLM-4.5 Air",
+    "id" : "glm-4.5-air",
+    "modelName" : "glm-4.5-air",
+    "provider" : "zAI"
+  },
+  {
+    "case" : "zaiGLM45Flash",
+    "defaultReasoningEffort" : "",
+    "displayName" : "Z.AI GLM-4.5 Flash",
+    "id" : "glm-4.5-flash",
+    "modelName" : "glm-4.5-flash",
+    "provider" : "zAI"
+  }
+]

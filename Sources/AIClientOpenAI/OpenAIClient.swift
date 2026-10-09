@@ -1,6 +1,7 @@
 import Foundation
 import AIClientKit
 import AIClientHTTP
+import AIModelCatalog
 
 public struct OpenAIClientConfiguration: Sendable {
 	public var baseURL: URL?
@@ -46,14 +47,14 @@ public final class OpenAIClient: AIClientProviding, OpenAIResponsesProviding, Se
 	private let requests = AIRequestRegistry()
 	public init(apiKey: String, configuration: OpenAIClientConfiguration = .init(), httpClient: any AIHTTPClient,
 	            streamingHTTPClient: any AIHTTPClient, sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
-	            profileResolver: @escaping @Sendable (AIRequest) -> OpenAIRequestProfile = { .init(usesResponsesAPI: $0.model.capabilities.contains(.responsesAPI)) }) {
+            profileResolver: @escaping @Sendable (AIRequest) -> OpenAIRequestProfile = { .catalogProfile(for: $0) }) {
 		self.apiKey = apiKey; self.configuration = configuration; http = httpClient; streamingHTTP = streamingHTTPClient; self.sleep = sleep; self.profileResolver = profileResolver
 	}
 	public func cancel(requestID: UUID) async { await requests.cancel(requestID) }
 	public func models() async throws -> [AIModelDescriptor] {
 		let value = try await http.data(for: request(path: "models", method: "GET")); try check(value)
 		let body = try JSONSerialization.jsonObject(with: value.data) as? [String: Any]
-		return (body?["data"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }.map { .init(id: $0, provider: configuration.provider, displayName: $0, capabilities: [.streaming]) }
+		return AICuratedModelCatalog.reconcile((body?["data"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }, provider: configuration.provider)
 	}
 	public func complete(_ input: AIRequest) async throws -> AICompletionResult { try await complete(input, profile: profileResolver(input)) }
 	public func complete(_ input: AIRequest, profile: OpenAIRequestProfile) async throws -> AICompletionResult {
@@ -197,7 +198,7 @@ public final class OpenAIClient: AIClientProviding, OpenAIResponsesProviding, Se
 	private func chatBody(_ input: AIRequest, profile: OpenAIRequestProfile, streaming: Bool) throws -> Data {
 		var body: [String: Any] = ["model": input.model.id, "stream": streaming, "messages": input.messages.map { ["role": $0.role.rawValue, "content": $0.text] }]
 		if let tokens = profile.chatMaxTokens ?? input.options.maxTokens, tokens != 2048 { body[profile.useMaxCompletionTokens ? "max_completion_tokens" : "max_tokens"] = tokens }
-		if profile.chatTemperatureAllowed, let temperature = input.options.temperature { body["temperature"] = temperature }
+		if profile.chatTemperatureAllowed, let temperature = input.options.temperature ?? profile.defaultTemperature { body["temperature"] = temperature }
 		if let effort = input.options.reasoningEffort { body["reasoning_effort"] = effort }
 		if streaming {
 			body["stream"] = true

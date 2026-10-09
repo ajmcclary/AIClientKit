@@ -1,5 +1,6 @@
 import Foundation
 import AIClientKit
+import AIModelCatalog
 
 /// A resolved model/request snapshot. Hosts resolve preferences before submitting.
 public struct OpenAIRequestProfile: Equatable, Sendable {
@@ -11,13 +12,26 @@ public struct OpenAIRequestProfile: Equatable, Sendable {
 	public var omitResponseMaxTokens: Bool
 	public var chatTemperatureAllowed: Bool
 	public var backgroundTemperature: Double?
+	public var defaultReasoningEffort: String?
+	public var defaultTemperature: Double?
 	public init(usesResponsesAPI: Bool = false, responseModelID: String? = nil, chatMaxTokens: Int? = nil,
 	            responsesMaxTokens: Int? = nil, useMaxCompletionTokens: Bool = false,
-	            omitResponseMaxTokens: Bool = false, chatTemperatureAllowed: Bool = true, backgroundTemperature: Double? = nil) {
+            omitResponseMaxTokens: Bool = false, chatTemperatureAllowed: Bool = true, backgroundTemperature: Double? = nil,
+            defaultReasoningEffort: String? = nil, defaultTemperature: Double? = nil) {
 		self.usesResponsesAPI = usesResponsesAPI; self.responseModelID = responseModelID
 		self.chatMaxTokens = chatMaxTokens; self.responsesMaxTokens = responsesMaxTokens
 		self.useMaxCompletionTokens = useMaxCompletionTokens; self.omitResponseMaxTokens = omitResponseMaxTokens
 		self.chatTemperatureAllowed = chatTemperatureAllowed; self.backgroundTemperature = backgroundTemperature
+		self.defaultReasoningEffort = defaultReasoningEffort; self.defaultTemperature = defaultTemperature
+	}
+	public static func catalogProfile(for request: AIRequest) -> Self {
+		guard let record = AICuratedModelCatalog.record(id: request.model.id, provider: request.model.provider) else {
+			return .init(usesResponsesAPI: request.model.capabilities.contains(.responsesAPI))
+		}
+		return .init(usesResponsesAPI: record.usesResponsesAPI, responseModelID: record.execution.responseModelID,
+		             chatMaxTokens: request.options.maxTokens ?? record.execution.geminiMaxTokens ?? record.execution.defaultRequestMaxTokens,
+		             responsesMaxTokens: request.options.maxTokens ?? record.execution.defaultRequestMaxTokens, omitResponseMaxTokens: record.execution.omitResponseTokensByDefault,
+		             backgroundTemperature: record.defaultTemperature, defaultReasoningEffort: record.execution.reasoningEffort, defaultTemperature: record.defaultTemperature)
 	}
 }
 
@@ -46,7 +60,7 @@ public struct OpenAIResponseParameters: Encodable, Sendable {
 		model = profile.responseModelID ?? request.model.id
 		instructions = request.messages.first { $0.role == .system && !$0.text.isEmpty }?.text
 		maxOutputTokens = profile.omitResponseMaxTokens ? nil : profile.responsesMaxTokens ?? request.options.maxTokens
-		reasoning = request.options.reasoningEffort.map { .init(effort: $0, summary: streaming ? "auto" : nil) }
+		reasoning = (request.options.reasoningEffort ?? profile.defaultReasoningEffort).map { .init(effort: $0, summary: streaming ? "auto" : nil) }
 		serviceTier = request.options.serviceTier
 		self.background = background ? true : nil; stream = streaming
 		temperature = background && reasoning == nil ? profile.backgroundTemperature : nil

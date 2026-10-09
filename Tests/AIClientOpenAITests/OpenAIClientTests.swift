@@ -150,6 +150,16 @@ final class OpenAIClientTests: XCTestCase {
 		XCTAssertNil(call.url?.query)
 		XCTAssertTrue(call.url!.absoluteString.contains("resp%2F%2E%2E%2Fother%3Fquery"))
 	}
+	func testCuratedDescriptorUsesSharedRequestDefaultsThroughErasedClient() async throws {
+		let f = OpenAIWireFixture([OpenAIWireFixture.response()]); defer { f.remove() }
+		let c: any AIClientProviding = client(f)
+		let request = AIRequest(model: .init(id: "gpt-5.5-high", provider: .openAI, displayName: "High", capabilities: [.streaming]), messages: [.init(role: .user, text: "hello")])
+		_ = try await c.complete(request)
+		let body = try f.body()
+		XCTAssertEqual(body["model"] as? String, "gpt-5.5")
+		XCTAssertEqual((body["reasoning"] as? [String: Any])?["effort"] as? String, "high")
+		XCTAssertNil(body["max_output_tokens"])
+	}
 }
 
 private actor RecordingHTTP: AIHTTPClient {

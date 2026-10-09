@@ -3,6 +3,7 @@ import Synchronization
 import AIClientKit
 import AIClientHTTP
 import AIClientModelDiscovery
+import AIModelCatalog
 internal import SwiftAnthropic
 
 /// Anthropic-specific configuration; credentials, sessions, and catalog transport are host inputs.
@@ -64,9 +65,7 @@ public final class AnthropicClient: AIClientProviding, Sendable {
 
 	public func models() async throws -> [AIModelDescriptor] {
 		guard let endpoint = URL(string: configuration.baseURL + "/v1/models") else { throw AIProviderError.missingURL }
-		return try await AnthropicModelCatalog.fetchModelIDs(apiKey: apiKey, endpoint: endpoint, apiVersion: configuration.apiVersion, httpClient: catalogHTTPClient).map {
-			.init(id: $0, provider: .anthropic, displayName: $0, capabilities: [.streaming])
-		}
+		return try await AICuratedModelCatalog.reconcile(AnthropicModelCatalog.fetchModelIDs(apiKey: apiKey, endpoint: endpoint, apiVersion: configuration.apiVersion, httpClient: catalogHTTPClient), provider: .anthropic)
 	}
 	public func cancel(requestID: UUID) async { await requests.cancel(requestID) }
 
