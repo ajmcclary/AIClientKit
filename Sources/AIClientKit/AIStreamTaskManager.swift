@@ -100,15 +100,12 @@ public actor AIStreamTaskManager {
 	/// Keep track of each stream's continuation so we can explicitly finish it on cancel
 	private var continuations: [UUID: AsyncThrowingStream<ChatStreamOutput, Error>.Continuation] = [:]
 
-	/// Tracks streams that have been requested to cancel before the task or continuation existed.
-	/// This prevents race conditions where cancelTask is called before addTask/storeContinuation.
-	private var cancelledIDs: Set<UUID> = []
 
 	// MARK: - Registering Tasks & Continuations
 
 	public func addTask(_ task: Task<Void, Never>, for id: UUID) {
 		// If cancellation was requested before task was registered, cancel immediately
-		if cancelledIDs.contains(id) {
+		if partialBuffers[id] == nil {
 			task.cancel()
 			return
 		}
@@ -121,7 +118,7 @@ public actor AIStreamTaskManager {
 		for id: UUID
 	) {
 		// If cancellation was requested before continuation was stored, finish immediately
-		if cancelledIDs.contains(id) {
+		if partialBuffers[id] == nil {
 			continuation.finish(throwing: CancellationError())
 			return
 		}
@@ -132,20 +129,18 @@ public actor AIStreamTaskManager {
 		tasks[id] = nil
 		partialBuffers[id] = nil
 		continuations[id] = nil
-		cancelledIDs.remove(id)
 	}
 
 	// MARK: - Partial Buffer
 
 	public func createPartialBuffer(for id: UUID) {
-		// Clear any stale cancelled flag when starting fresh
-		cancelledIDs.remove(id)
+		// Begin an active stream; removed buffers identify closed/cancelled streams.
 		partialBuffers[id] = PartialBuffer(lastFlushTime: now())
 	}
 
-	/// Check if a stream ID has been marked for cancellation
+	/// Check whether a stream has been cancelled or finalized.
 	public func isCancelled(_ id: UUID) -> Bool {
-		cancelledIDs.contains(id)
+		partialBuffers[id] == nil
 	}
 
 	/// Accumulates text / reasoning / token counts in the partial buffer.
@@ -225,8 +220,8 @@ public actor AIStreamTaskManager {
 	/// Cancel only the given stream: task + stream continuation + buffer.
 	/// Records the ID so that late-arriving task/continuation registrations are also cancelled.
 	public func cancelTask(for id: UUID) {
-		// Record cancellation intent - handles race where cancel arrives before registration
-		cancelledIDs.insert(id)
+		// Removing the active buffer also rejects late registrations without
+		// retaining an unbounded set of completed/cancelled identifiers.
 
 		if let task = tasks[id] {
 			task.cancel()

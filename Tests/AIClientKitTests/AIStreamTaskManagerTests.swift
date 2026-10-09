@@ -3,6 +3,31 @@ import Foundation
 import XCTest
 
 final class AIStreamTaskManagerTests: XCTestCase {
+    func testFinishedStreamRejectsLateTaskRegistration() async {
+        let manager = AIStreamTaskManager()
+        let id = UUID()
+        await manager.createPartialBuffer(for: id)
+        await manager.removeTask(for: id)
+        let task = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
+        await manager.addTask(task, for: id)
+        XCTAssertTrue(task.isCancelled)
+        await task.value
+    }
+
+    func testFinishedStreamRejectsLateContinuationRegistration() async throws {
+        let manager = AIStreamTaskManager()
+        let id = UUID()
+        await manager.createPartialBuffer(for: id)
+        await manager.removeTask(for: id)
+        let channel = AsyncThrowingStream<ChatStreamOutput, Error>.makeStream()
+        await manager.storeContinuation(channel.continuation, for: id)
+        var iterator = channel.stream.makeAsyncIterator()
+        do {
+            _ = try await iterator.next()
+            XCTFail("A finalized stream must not be resurrected by late registration")
+        } catch is CancellationError {}
+    }
+
     func testCancelAllFinishesStreamsBeforeTaskRegistration() async throws {
         let manager = AIStreamTaskManager()
         let id = UUID()
