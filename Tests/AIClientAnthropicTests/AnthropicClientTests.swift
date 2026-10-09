@@ -118,6 +118,8 @@ final class AnthropicClientTests: XCTestCase {
 		let task = Task { try await c.complete(r) }
 		try await waitForRequest(f); await c.cancel(requestID: r.id)
 		do { _ = try await task.value; XCTFail("Expected cancellation") } catch is CancellationError {}
+		let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+		while f.stops == 0 && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(2)) }
 		XCTAssertGreaterThan(f.stops, 0)
 		let second = Task { try await c.complete(r) }
 		await Task.yield(); second.cancel()

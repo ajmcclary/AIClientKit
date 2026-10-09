@@ -12,6 +12,7 @@ let package = Package(
     products: [
         .library(name: "AIClientKit", targets: ["AIClientKit"]),
         .library(name: "AIClientHTTP", targets: ["AIClientHTTP"]),
+        .library(name: "AIClientStorage", targets: ["AIClientStorage"]),
         .library(name: "AIClientAnthropic", targets: ["AIClientAnthropic"]),
         .library(name: "AIClientOpenAI", targets: ["AIClientOpenAI"]),
         .library(name: "AIClientModelDiscovery", targets: ["AIClientModelDiscovery"]),
@@ -23,11 +24,13 @@ let package = Package(
     targets: [
         .target(name: "AIClientKit", swiftSettings: settings),
         .target(name: "AIClientHTTP", swiftSettings: settings),
+        .target(name: "AIClientStorage", dependencies: ["AIClientKit"], swiftSettings: settings),
         .target(name: "AIClientOpenAI", dependencies: ["AIClientKit", "AIClientHTTP"], swiftSettings: settings),
         .target(name: "AIClientAnthropic", dependencies: ["AIClientKit", "AIClientHTTP", "AIClientModelDiscovery", .product(name: "SwiftAnthropic", package: "SwiftAnthropic")], swiftSettings: settings),
         .target(name: "AIClientModelDiscovery", dependencies: ["AIClientKit", "AIClientHTTP"], swiftSettings: settings),
         .target(name: "AIClientOpenAICompatible", dependencies: ["AIClientKit", "AIClientHTTP"], swiftSettings: settings),
         .testTarget(name: "AIClientKitTests", dependencies: ["AIClientKit"], swiftSettings: settings),
+        .testTarget(name: "AIClientStorageTests", dependencies: ["AIClientStorage", "AIClientKit"], swiftSettings: settings),
         .testTarget(name: "AIClientOpenAITests", dependencies: ["AIClientOpenAI", "AIClientKit", "AIClientHTTP"], resources: [.process("Fixtures")], swiftSettings: settings),
         .testTarget(name: "AIClientAnthropicTests", dependencies: ["AIClientAnthropic", "AIClientKit", "AIClientHTTP"], swiftSettings: settings),
         .testTarget(name: "AIClientOpenAICompatibleTests", dependencies: ["AIClientOpenAICompatible", "AIClientHTTP", "AIClientKit"], swiftSettings: settings),

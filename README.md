@@ -65,3 +65,14 @@ Native-agent implementations remain subsequent extraction slices.
   Cancellation during creation reconciles a late response ID and sends one remote
   cancellation; completed jobs are not cancelled. Text conversations are supported;
   attachments and structured tool turns are rejected explicitly.
+
+- `AIClientStorage`: generic-password Keychain access, process-local storage,
+  HMAC envelopes, legacy credential recovery, request-safe credential caching,
+  provider configuration, and generic JSON preferences. Inputs include namespace,
+  account mapping, signing evidence/persistence policy, integrity constants,
+  Keychain access, device identity, and clocks. No bundle or global-defaults lookup.
+  Plain API keys and legacy 32-byte-HMAC framing remain compatible. New hosts
+  require the install secret; the legacy device/salt fallback is explicit.
+  Installation-secret creation is atomic and late credential reads cannot replace
+  a newly written cache entry. Preference suites and Keychain service names remain
+  per host. Tests never read or change existing application credentials.
