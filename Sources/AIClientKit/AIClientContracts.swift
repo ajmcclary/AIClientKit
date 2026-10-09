@@ -9,6 +9,7 @@ public struct AIModelCapability: RawRepresentable, Codable, Hashable, Sendable {
     public static let images = Self(rawValue: "images")
     public static let tools = Self(rawValue: "tools")
     public static let backgroundResponses = Self(rawValue: "backgroundResponses")
+    public static let responsesAPI = Self(rawValue: "responsesAPI")
 }
 
 /// Model identity and metadata, independent of SDK representations and app preferences.

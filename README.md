@@ -35,8 +35,7 @@ are serialized as supplied; richer vendor-specific tool messages are separate
 adapters. HTTP Content-Type and token sentinel behavior are characterized against
 the extracted implementation. Normal and cancellation stop events are preserved.
 
-Provider implementations for the OpenAI SDK paths and native agents
-remain separate subsequent extraction slices.
+Native-agent implementations remain subsequent extraction slices.
 
 - `AIClientModelDiscovery`: live Anthropic, Gemini, Ollama, and Featherless
   catalogs with injected HTTP clients/credentials. Gemini retains its 20-page
@@ -53,3 +52,16 @@ remain separate subsequent extraction slices.
   Legacy streaming/completion token and temperature differences are retained.
   The bridge emits one stop event and reconciles native start/delta usage.
   Attachments and structured tool turns are rejected by this text client.
+
+- `AIClientOpenAI`: chat completions, Responses completion/SSE, background-job
+  create/fetch/poll/cancel, usage/reasoning projection, models, neutral errors,
+  and request cancellation. DeepSeek, Gemini, Ollama, ZAI, and Featherless endpoint
+  configurations are reusable values. Hosts supply resolved model profiles,
+  credentials, HTTP clients, and polling timing. The erased `AIClientProviding`
+  interface accepts the neutral Responses capability or an injected profile resolver.
+  Eight complete request fixtures characterize the legacy SDK fork's wire behavior.
+  The wire adapter removes the untagged SDK revision dependency from released
+  packages. Unknown response fields/statuses survive in `OpenAIResponse.rawJSON`.
+  Cancellation during creation reconciles a late response ID and sends one remote
+  cancellation; completed jobs are not cancelled. Text conversations are supported;
+  attachments and structured tool turns are rejected explicitly.

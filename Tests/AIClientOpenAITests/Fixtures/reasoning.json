@@ -1,0 +1,25 @@
+{
+  "input" : [
+    {
+      "content" : "<file_tree>\nroot\n<\/file_tree>\n\nfirst",
+      "role" : "user",
+      "type" : "message"
+    },
+    {
+      "content" : "reply",
+      "role" : "assistant",
+      "type" : "message"
+    },
+    {
+      "content" : "last",
+      "role" : "user",
+      "type" : "message"
+    }
+  ],
+  "instructions" : "sys",
+  "model" : "fixture",
+  "reasoning" : {
+    "effort" : "high"
+  },
+  "stream" : false
+}

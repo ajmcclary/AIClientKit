@@ -1,0 +1,23 @@
+{
+  "max_tokens" : 16384,
+  "messages" : [
+    {
+      "content" : "sys",
+      "role" : "system"
+    },
+    {
+      "content" : "first",
+      "role" : "user"
+    },
+    {
+      "content" : "reply",
+      "role" : "assistant"
+    },
+    {
+      "content" : "<file_tree>\nroot\n<\/file_tree>\nlast",
+      "role" : "user"
+    }
+  ],
+  "model" : "unknown_model",
+  "stream" : false
+}
