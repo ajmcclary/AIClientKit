@@ -106,7 +106,7 @@ final class OpenAICompatibleClientTests: XCTestCase {
         do { _ = try await operation.value; XCTFail("Expected cancellation") }
         catch is CancellationError {}
         // Registry cleanup is independently pinned below; cancellation must not leave a live operation.
-        let registry = CompatibleRequestRegistry()
+        let registry = AIRequestRegistry()
         let old = try await registry.begin(input.id)
         await registry.cancel(input.id)
         let fresh = try await registry.begin(input.id)

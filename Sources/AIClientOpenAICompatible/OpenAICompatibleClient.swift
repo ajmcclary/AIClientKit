@@ -18,7 +18,7 @@ public final class OpenAICompatibleClient: AIClientProviding, Sendable {
 
 	private let diagnostics: @Sendable (String) -> Void
 	private let sleep: @Sendable (TimeInterval) async throws -> Void
-	private let requests = CompatibleRequestRegistry()
+	private let requests = AIRequestRegistry()
 
 	public func models() async throws -> [AIModelDescriptor] {
 		try await getAvailableModels().map {

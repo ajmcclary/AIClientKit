@@ -1,15 +1,16 @@
 import Foundation
-import AIClientKit
 
 /// Registrations are generation-scoped so completion cannot remove a reused request ID.
-actor CompatibleRequestRegistry {
+package actor AIRequestRegistry {
     private struct Entry {
         let generation: UUID
         var cancel: (@Sendable () -> Void)?
     }
+    package init() {}
+
     private var entries: [UUID: Entry] = [:]
 
-    func begin(_ id: UUID) throws -> UUID {
+    package func begin(_ id: UUID) throws -> UUID {
         guard entries[id] == nil else {
             throw AIProviderError.invalidConfiguration(detail: "An operation with this request ID is already active.")
         }
@@ -18,7 +19,7 @@ actor CompatibleRequestRegistry {
         return generation
     }
 
-    func register(_ id: UUID, generation: UUID, cancel: @escaping @Sendable () -> Void) {
+    package func register(_ id: UUID, generation: UUID, cancel: @escaping @Sendable () -> Void) {
         guard entries[id]?.generation == generation else {
             cancel()
             return
@@ -26,12 +27,12 @@ actor CompatibleRequestRegistry {
         entries[id]?.cancel = cancel
     }
 
-    func finish(_ id: UUID, generation: UUID) {
+    package func finish(_ id: UUID, generation: UUID) {
         guard entries[id]?.generation == generation else { return }
         entries[id] = nil
     }
 
-    func cancel(_ id: UUID) {
+    package func cancel(_ id: UUID) {
         let entry = entries.removeValue(forKey: id)
         entry?.cancel?()
     }

@@ -21,12 +21,14 @@ public enum AnthropicModelCatalog {
 
 	public static func fetchModelIDs(
 		apiKey: String,
+		endpoint: URL = modelsURL,
+		apiVersion: String = anthropicVersion,
 		httpClient: any AIHTTPClient
 	) async throws -> [String] {
-		var request = URLRequest(url: modelsURL)
+		var request = URLRequest(url: endpoint)
 		request.httpMethod = "GET"
 		request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-		request.setValue(anthropicVersion, forHTTPHeaderField: "anthropic-version")
+		request.setValue(apiVersion, forHTTPHeaderField: "anthropic-version")
 		let response = try await httpClient.data(for: request)
 		guard response.http.statusCode == 200 else {
 			throw AIProviderError.invalidConfiguration(
