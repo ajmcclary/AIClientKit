@@ -137,6 +137,19 @@ final class OpenAIClientTests: XCTestCase {
 			XCTAssertEqual(call.url?.path, (config.baseURL?.path ?? "") + "/" + (config.apiVersion ?? "v1") + "/chat/completions")
 		}
 	}
+	func testSDKProxyAzureAndBaseQueryRulesAndEscapedResponseIDs() async throws {
+		for (base, expected) in [("https://fixture.invalid/proxy/?ignored=1", "/proxy/v1/chat/completions"), ("https://fixture.invalid/openai.azure.com?ignored=1", "/v1/chat/completions")] {
+			let http = RecordingHTTP()
+			let c = OpenAIClient(apiKey: "fixture", configuration: .init(baseURL: URL(string: base)!), httpClient: http, streamingHTTPClient: http)
+			_ = try await c.complete(input()); let calls = await http.calls
+			XCTAssertEqual(calls.first?.url?.path, expected); XCTAssertEqual(calls.first?.url?.query, "ignored=1")
+		}
+		let f = OpenAIWireFixture([OpenAIWireFixture.response()]); defer { f.remove() }
+		_ = try await client(f).fetchResponse(id: "resp/../other?query")
+		let call = try XCTUnwrap(f.requests.first)
+		XCTAssertNil(call.url?.query)
+		XCTAssertTrue(call.url!.absoluteString.contains("resp%2F%2E%2E%2Fother%3Fquery"))
+	}
 }
 
 private actor RecordingHTTP: AIHTTPClient {

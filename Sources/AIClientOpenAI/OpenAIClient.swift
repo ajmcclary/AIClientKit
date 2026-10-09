@@ -253,8 +253,14 @@ public final class OpenAIClient: AIClientProviding, OpenAIResponsesProviding, Se
 	private func request(path: String, method: String = "POST", body: Data? = nil) throws -> URLRequest {
 		let base = configuration.baseURL ?? URL(string: "https://api.openai.com")!
 		let version = configuration.baseURL == nil ? "v1" : configuration.apiVersion ?? "v1"
-		let suffix = (version.isEmpty ? "" : "/"+version) + "/"+path
-		guard let url = URL(string: base.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + suffix) else { throw AIProviderError.missingURL }
+		guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { throw AIProviderError.missingURL }
+		// Retain the SDK's proxy-path rules, Azure placeholder exception, and
+		// retention of base query items. Escaped response IDs stay path components.
+		let basePath = components.path.contains(".azure.com") ? "" : components.percentEncodedPath
+		let escapedVersion = version.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "?%#"))) ?? ""
+		let endpoint = (escapedVersion.isEmpty ? "" : escapedVersion + "/") + path
+		components.percentEncodedPath = basePath + (basePath.hasSuffix("/") ? "" : "/") + endpoint
+		guard let url = components.url else { throw AIProviderError.missingURL }
 		var request = URLRequest(url: url); request.httpMethod = method; request.httpBody = body
 		request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 		request.setValue("Bearer " + apiKey, forHTTPHeaderField: "Authorization"); return request
