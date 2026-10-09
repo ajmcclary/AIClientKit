@@ -174,4 +174,16 @@ final class AnthropicClientTests: XCTestCase {
 		await c.cancel(requestID: second.id); _ = try await two.value
 		XCTAssertEqual(finished.withLock { $0 }, [first.id, second.id])
 	}
+
+	func testCancellationDuringSDKTaskConstructionNeverInvalidatesSessionEarly() async throws {
+		for _ in 0..<40 {
+			let f = AnthropicFixture(body: AnthropicFixture.completion); defer { f.remove() }
+			let c = client(f), r = request()
+			let input = AIRequest(model: r.model, messages: [.init(role: .system, text: "sys"), .init(role: .user, text: String(repeating: "x", count: 100_000))])
+			let task = Task { try await c.complete(input) }
+			await Task.yield(); task.cancel()
+			do { let result = try await task.value; XCTAssertEqual(result.text, "reasonanswer") }
+			catch is CancellationError {}
+		}
+	}
 }

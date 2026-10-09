@@ -76,9 +76,9 @@ public final class AnthropicClient: AIClientProviding, Sendable {
 		let generation = try await requests.begin(request.id)
 		let session = sessions.make()
 		let task = Task { try await self.performCompletion(request, session: session) }
-		await requests.register(request.id, generation: generation) { task.cancel(); session.invalidateAndCancel() }
+		await requests.register(request.id, generation: generation) { task.cancel(); Self.cancelTransport(session) }
 		do {
-			let value = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel(); session.invalidateAndCancel() }
+			let value = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel(); Self.cancelTransport(session) }
 			session.invalidateAndCancel()
 			await requests.finish(request.id, generation: generation)
 			return value
@@ -99,6 +99,7 @@ public final class AnthropicClient: AIClientProviding, Sendable {
 		let registry = requests
 		let task = Task {
 			do {
+				try Task.checkCancellation()
 				if !request.model.capabilities.contains(.streaming) {
 					let result = try await self.performCompletion(request, session: session)
 					try Task.checkCancellation()
@@ -127,12 +128,20 @@ public final class AnthropicClient: AIClientProviding, Sendable {
 			session.invalidateAndCancel()
 			await registry.finish(request.id, generation: generation)
 		}
-		await registry.register(request.id, generation: generation) { task.cancel(); session.invalidateAndCancel(); continuation.finish() }
+		await registry.register(request.id, generation: generation) { task.cancel(); Self.cancelTransport(session); continuation.finish() }
 		continuation.onTermination = { _ in
-			task.cancel(); session.invalidateAndCancel()
+			task.cancel(); Self.cancelTransport(session)
 			Task { await registry.finish(request.id, generation: generation) }
 		}
 		return stream
+	}
+
+	private static func cancelTransport(_ session: URLSession) {
+		// Keep the session valid until the SDK operation exits. Invalidating here
+		// races SDK task creation and Foundation raises NSGenericException.
+		// The parent task cancels async data/bytes establishment; this callback also
+		// reaches the SDK's independent stream reader after establishment.
+		session.getAllTasks { tasks in tasks.forEach { $0.cancel() } }
 	}
 
 	private func validate(_ request: AIRequest) throws {
