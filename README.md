@@ -36,3 +36,9 @@ the extracted implementation. Normal and cancellation stop events are preserved.
 
 Provider implementations for the OpenAI/Anthropic SDK paths and native agents
 remain separate subsequent extraction slices.
+
+- `AIClientModelDiscovery`: live Anthropic, Gemini, Ollama, and Featherless
+  catalogs with injected HTTP clients/credentials. Gemini retains its 20-page
+  bound, chat-model filtering, and ordered deduplication; Ollama reads installed
+  `/api/tags`; Featherless filters on the server and takes an explicit host title.
+  Network request and decoding characterizations are package-owned.
