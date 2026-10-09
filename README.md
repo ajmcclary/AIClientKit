@@ -16,3 +16,23 @@ Source lineage: RepoPrompt (`github.com/ajmcclary/RepoPrompt`), Apache-2.0.
 `AIStreamTaskManager` owns buffering, usage flushes, per-request cancellation,
 and late-registration cancellation. Its clock is injectable. Global cancellation
 also reaches streams whose provider task has not registered yet.
+
+## Provider products
+
+- `AIClientHTTP`: injectable Foundation HTTP transport and off-executor decoding.
+  Session timeout/connectivity profiles are explicit constructor inputs.
+- `AIClientOpenAICompatible`: the real custom-endpoint implementation extracted
+  from RepoPrompt: chat completions, SSE streaming, model discovery, credential
+  validation, headers, token/temperature rules, error mapping, retries, and
+  request-scoped cancellation. No application or external vendor SDK imports.
+
+Hosts supply already-composed `AIRequest` messages and resolved model/options.
+`OpenAICompatibleMessageBuilder` preserves the legacy custom-endpoint context
+placement without consulting preferences. This client supports text requests;
+image attachments are rejected explicitly. System/user/assistant/tool text roles
+are serialized as supplied; richer vendor-specific tool messages are separate
+adapters. HTTP Content-Type and token sentinel behavior are characterized against
+the extracted implementation. Normal and cancellation stop events are preserved.
+
+Provider implementations for the OpenAI/Anthropic SDK paths and native agents
+remain separate subsequent extraction slices.

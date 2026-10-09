@@ -9,9 +9,16 @@ let settings: [SwiftSetting] = [
 let package = Package(
     name: "AIClientKit",
     platforms: [.macOS("27.0")],
-    products: [.library(name: "AIClientKit", targets: ["AIClientKit"])],
+    products: [
+        .library(name: "AIClientKit", targets: ["AIClientKit"]),
+        .library(name: "AIClientHTTP", targets: ["AIClientHTTP"]),
+        .library(name: "AIClientOpenAICompatible", targets: ["AIClientOpenAICompatible"])
+    ],
     targets: [
         .target(name: "AIClientKit", swiftSettings: settings),
-        .testTarget(name: "AIClientKitTests", dependencies: ["AIClientKit"], swiftSettings: settings)
+        .target(name: "AIClientHTTP", swiftSettings: settings),
+        .target(name: "AIClientOpenAICompatible", dependencies: ["AIClientKit", "AIClientHTTP"], swiftSettings: settings),
+        .testTarget(name: "AIClientKitTests", dependencies: ["AIClientKit"], swiftSettings: settings),
+        .testTarget(name: "AIClientOpenAICompatibleTests", dependencies: ["AIClientOpenAICompatible", "AIClientHTTP", "AIClientKit"], swiftSettings: settings)
     ]
 )
