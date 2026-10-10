@@ -6,8 +6,8 @@ struct OpenAIWireFixture: Sendable {
 	var configuration: URLSessionConfiguration {
 		let value = URLSessionConfiguration.ephemeral; value.protocolClasses = [OpenAIWireURLProtocol.self]; return value
 	}
-	init(_ bodies: [String], status: Int = 200, hang: Bool = false) {
-		url = OpenAIWireURLProtocol.install(bodies.map { .init(body: Data($0.utf8), status: status, hang: hang) })
+	init(_ bodies: [String], status: Int = 200, hang: Bool = false, onStop: (@Sendable () -> Void)? = nil) {
+		url = OpenAIWireURLProtocol.install(bodies.map { .init(body: Data($0.utf8), status: status, hang: hang) }, onStop: onStop)
 	}
 	var requests: [URLRequest] { OpenAIWireURLProtocol.requests(url.host!) }
 	var stops: Int { OpenAIWireURLProtocol.stops(url.host!) }
@@ -22,11 +22,11 @@ struct OpenAIWireFixture: Sendable {
 
 final class OpenAIWireURLProtocol: URLProtocol, @unchecked Sendable {
 	struct Response: Sendable { let body: Data; let status: Int; let hang: Bool }
-	private struct Script: Sendable { var bodies: [Response]; var requests: [URLRequest] = []; var stops = 0 }
+	private struct Script: Sendable { var bodies: [Response]; var requests: [URLRequest] = []; var stops = 0; var onStop: (@Sendable () -> Void)? }
 	private static let scripts = Mutex<[String: Script]>([:])
-	static func install(_ bodies: [Response]) -> URL {
+	static func install(_ bodies: [Response], onStop: (@Sendable () -> Void)?) -> URL {
 		let host = UUID().uuidString.lowercased()+".fixture.invalid"
-		scripts.withLock { $0[host] = Script(bodies: bodies) }; return URL(string: "https://"+host)!
+		scripts.withLock { $0[host] = Script(bodies: bodies, onStop: onStop) }; return URL(string: "https://"+host)!
 	}
 	static func remove(_ host: String) { scripts.withLock { $0[host] = nil } }
 	static func requests(_ host: String) -> [URLRequest] { scripts.withLock { $0[host]?.requests ?? [] } }
@@ -50,5 +50,16 @@ final class OpenAIWireURLProtocol: URLProtocol, @unchecked Sendable {
 		for byte in response.body { client?.urlProtocol(self, didLoad: Data([byte])) }
 		if !response.hang { client?.urlProtocolDidFinishLoading(self) }
 	}
-	override func stopLoading() { if let host = request.url?.host { Self.scripts.withLock { $0[host]?.stops += 1 } } }
+	override func stopLoading() {
+		guard let host = request.url?.host else { return }
+		let callback = Self.scripts.withLock { scripts -> (@Sendable () -> Void)? in
+			guard var script = scripts[host] else { return nil }
+			script.stops += 1
+			let callback = script.onStop
+			script.onStop = nil
+			scripts[host] = script
+			return callback
+		}
+		callback?()
+	}
 }

@@ -113,9 +113,12 @@ final class OpenAIClientTests: XCTestCase {
 		do { _ = try await c.complete(.init(model: r.model, messages: r.messages, attachments: [.init(mediaType: "image/png", data: Data())])); XCTFail("Expected attachment rejection") } catch AIProviderError.invalidConfiguration {}
 	}
 	func testRequestCancellationAndIDReuse() async throws {
-		let f = OpenAIWireFixture([""], hang: true); defer { f.remove() }; let c = client(f), r = input()
+		let stopped = expectation(description: "URLSession delivers stopLoading for cancelled transport")
+		let f = OpenAIWireFixture([""], hang: true, onStop: { stopped.fulfill() }); defer { f.remove() }; let c = client(f), r = input()
 		let task = Task { try await c.complete(r) }; try await waitRequests(f); await c.cancel(requestID: r.id)
 		do { _ = try await task.value; XCTFail("Expected cancellation") } catch is CancellationError {}
+		// Task cancellation may complete before URLSession invokes the protocol callback.
+		await fulfillment(of: [stopped], timeout: 3)
 		XCTAssertGreaterThan(f.stops, 0)
 		let second = Task { try await c.complete(r) }; second.cancel()
 		do { _ = try await second.value; XCTFail("Expected cancellation") } catch is CancellationError {}
