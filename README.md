@@ -97,4 +97,6 @@ The SwiftAnthropic transport graph constrains swift-distributed-tracing to 1.5.0
 and swift-service-context to 1.3.0. Tracing 1.7.0 and ServiceContext 1.4.0 declare
 conflicting ServiceContextModule targets on fresh resolution. These graph-only
 constraints retain the verified transport API and must remain until a compatible
-upstream pair is verified in a fresh graph; no new target links tracing directly.
+upstream pair is verified in a fresh downstream graph. AIClientAnthropic explicitly
+depends on the same Tracing/ServiceContext products its HTTP transport already uses,
+so SwiftPM retains the constraints when resolving AIClientKit transitively.
