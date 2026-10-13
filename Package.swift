@@ -21,7 +21,12 @@ let package = Package(
         .library(name: "AIClientOpenAICompatible", targets: ["AIClientOpenAICompatible"])
     ],
     dependencies: [
-        .package(url: "https://github.com/jamesrochabrun/SwiftAnthropic", exact: "2.2.2")
+        .package(url: "https://github.com/jamesrochabrun/SwiftAnthropic", exact: "2.2.2"),
+        // Tracing 1.7.0 and ServiceContext 1.4.0 both declare ServiceContextModule.
+        // Preserve the working SwiftAnthropic/AsyncHTTPClient graph until upstream
+        // publishes a mutually compatible pair; a consumer lockfile cannot fix CI.
+        .package(url: "https://github.com/apple/swift-distributed-tracing.git", exact: "1.5.0"),
+        .package(url: "https://github.com/apple/swift-service-context.git", exact: "1.3.0")
     ],
     targets: [
         .target(name: "AIClientKit", swiftSettings: settings),

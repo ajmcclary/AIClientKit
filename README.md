@@ -91,3 +91,10 @@ Native-agent implementations remain subsequent extraction slices.
 Catalog fixtures capture the pre-extraction identities/labels/defaults; publishing
 this package does not select new model versions. Hosts retain app enum adaptation,
 stored selections, preference namespaces, and native-provider runtime policy.
+
+
+The SwiftAnthropic transport graph constrains swift-distributed-tracing to 1.5.0
+and swift-service-context to 1.3.0. Tracing 1.7.0 and ServiceContext 1.4.0 declare
+conflicting ServiceContextModule targets on fresh resolution. These graph-only
+constraints retain the verified transport API and must remain until a compatible
+upstream pair is verified in a fresh graph; no new target links tracing directly.
