@@ -123,6 +123,68 @@ final class OpenAIClientTests: XCTestCase {
 		let second = Task { try await c.complete(r) }; second.cancel()
 		do { _ = try await second.value; XCTFail("Expected cancellation") } catch is CancellationError {}
 	}
+	private func outcome(_ stream: AsyncThrowingStream<AIStreamResult, Error>) async -> (events: [AIStreamResult], error: Error?) {
+		var events: [AIStreamResult] = []
+		do { for try await event in stream { events.append(event) }; return (events, nil) } catch { return (events, error) }
+	}
+	func testChatStreamInBandErrorIsThrownInsteadOfAStop() async throws {
+		let content = "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n"
+		for (error, code, message) in [("{\"message\":\"Rate limit reached\",\"code\":\"rate_limit_exceeded\"}", "rate_limit_exceeded" as String?, "Rate limit reached"), ("{\"message\":\"overloaded\",\"code\":529}", "529", "overloaded"), ("\"context too long\"", nil, "context too long")] {
+			let f = OpenAIWireFixture([content + "data: {\"error\":" + error + "}\n\n"]); defer { f.remove() }
+			let (events, thrown) = await outcome(try await client(f).stream(input(), profile: .init()))
+			XCTAssertEqual(events.map(\.type), ["content"])
+			let clientError = try XCTUnwrap(thrown as? OpenAIClientError)
+			XCTAssertEqual(clientError.code, code); XCTAssertEqual(clientError.message, message)
+		}
+	}
+	func testChatStreamFinishReasonIsReportedOnTheStopEvent() async throws {
+		for reason in ["stop", "length", "content_filter"] {
+			let body = "data: {\"choices\":[{\"delta\":{\"content\":\"text\"},\"finish_reason\":\"" + reason + "\"}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":2}}\n\ndata: [DONE]\n\n"
+			let f = OpenAIWireFixture([body]); defer { f.remove() }
+			let (events, thrown) = await outcome(try await client(f).stream(input(), profile: .init()))
+			XCTAssertNil(thrown); XCTAssertEqual(events.map(\.type), ["content", "message_stop"])
+			XCTAssertEqual(events.last?.stopReason, reason); XCTAssertEqual(events.last?.completionTokens, 2)
+		}
+	}
+	func testStreamsThatEndWithoutACompletionSignalThrow() async throws {
+		let chat = OpenAIWireFixture(["data: {\"choices\":[{\"delta\":{\"content\":\"cut\"}}]}\n\n"]); defer { chat.remove() }
+		let (chatEvents, chatError) = await outcome(try await client(chat).stream(input(), profile: .init()))
+		XCTAssertEqual(chatEvents.map(\.type), ["content"])
+		guard case AIProviderError.invalidResponse? = chatError else { return XCTFail("Expected a truncation error, got \(String(describing: chatError))") }
+		let responses = OpenAIWireFixture(["data: {\"type\":\"response.output_text.delta\",\"delta\":\"cut\"}\n\n"]); defer { responses.remove() }
+		let (responseEvents, responseError) = await outcome(try await client(responses).stream(input(responses: true), profile: .init(usesResponsesAPI: true)))
+		XCTAssertEqual(responseEvents.map(\.type), ["content"])
+		guard case AIProviderError.invalidResponse? = responseError else { return XCTFail("Expected a truncation error, got \(String(describing: responseError))") }
+	}
+	func testNonStreamingChatFinishReasonReachesTheResultAndTheStopEvent() async throws {
+		let f = OpenAIWireFixture([OpenAIWireFixture.chat, OpenAIWireFixture.chat]); defer { f.remove() }
+		let result = try await client(f).complete(input(), profile: .init())
+		XCTAssertEqual(result.stopReason, "stop")
+		let (events, thrown) = await outcome(try await client(f).stream(input(stream: false), profile: .init()))
+		XCTAssertNil(thrown); XCTAssertEqual(events.last?.type, "message_stop"); XCTAssertEqual(events.last?.stopReason, "stop")
+	}
+	func testStreamErrorBodyReadIsBounded() async throws {
+		// The body never finishes; only a bounded read lets the status surface.
+		let f = OpenAIWireFixture([String(repeating: "x", count: 20_000)], status: 500, hang: true); defer { f.remove() }
+		let c = client(f), r = input()
+		let consumer = Task { () -> Error? in
+			do { return await self.outcome(try await c.stream(r, profile: .init())).error } catch { return error }
+		}
+		let watchdog = Task { try await Task.sleep(for: .seconds(10)); consumer.cancel() }
+		let thrown = await consumer.value; watchdog.cancel()
+		XCTAssertEqual((thrown as? OpenAIClientError)?.statusCode, 500)
+	}
+	func testBackgroundPollingToleratesTransientFetchFailures() async throws {
+		let unavailable = (body: "{\"error\":{\"message\":\"unavailable\"}}", status: 503)
+		let f = OpenAIWireFixture(responses: [(OpenAIWireFixture.response("queued"), 200), unavailable, (OpenAIWireFixture.response(), 200)]); defer { f.remove() }
+		let durations = Mutex<[Duration]>([])
+		let values = try await collect(client(f, sleep: { d in durations.withLock { $0.append(d) } }).streamResponse(id: "resp_fixture"))
+		XCTAssertEqual(values.filter { $0.type == "message_stop" }.count, 1); XCTAssertEqual(values.last?.completionTokens, 7)
+		XCTAssertEqual(durations.withLock { $0 }, [.seconds(3), .seconds(4)]); XCTAssertEqual(f.requests.count, 3)
+		let failing = OpenAIWireFixture(responses: [(OpenAIWireFixture.response("queued"), 200), unavailable, unavailable, unavailable, unavailable, (OpenAIWireFixture.response(), 200)]); defer { failing.remove() }
+		let (_, thrown) = await outcome(try await client(failing).streamResponse(id: "resp_fixture"))
+		XCTAssertEqual((thrown as? OpenAIClientError)?.statusCode, 503); XCTAssertEqual(failing.requests.count, 5)
+	}
 	func testErasedProviderUsesNeutralResponsesCapability() async throws {
 		let f = OpenAIWireFixture([OpenAIWireFixture.response()]); defer { f.remove() }
 		let c: any AIClientProviding = client(f), r = input(responses: true)

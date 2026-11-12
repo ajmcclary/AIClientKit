@@ -90,7 +90,7 @@ public final class OpenAIClient: AIClientProviding, OpenAIResponsesProviding, Se
 			} else if !input.model.capabilities.contains(.streaming) {
 				let result = try await self.performCompletion(input, profile: profile); try Task.checkCancellation()
 				continuation.yield(.init(type: "content", text: result.text, completionTokens: result.completionTokens))
-				continuation.yield(.init(type: "message_stop", text: nil, promptTokens: result.promptTokens, completionTokens: result.completionTokens))
+				continuation.yield(.init(type: "message_stop", text: nil, promptTokens: result.promptTokens, completionTokens: result.completionTokens, stopReason: result.stopReason))
 			} else {
 				try await self.pump(input, profile: profile, continuation: continuation)
 			}
@@ -147,12 +147,28 @@ public final class OpenAIClient: AIClientProviding, OpenAIResponsesProviding, Se
 		let ownership = BackgroundOwnership(id: id)
 		return try await managedStream(requestID, ownership: ownership) { continuation in try await self.poll(id, continuation: continuation, ownership: ownership) }
 	}
+	/// Consecutive transient fetch failures a background poll rides out before it gives up.
+	static let maxConsecutivePollFailures = 3
+	/// A failed status fetch that says nothing about the job itself (network drop, gateway or rate limit).
+	private static func isTransientPollFailure(_ error: Error) -> Bool {
+		if let error = error as? URLError {
+			return [.timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed].contains(error.code)
+		}
+		if let error = error as? OpenAIClientError, let status = error.statusCode { return status == 408 || status == 429 || (500...599).contains(status) }
+		return false
+	}
 	private func poll(_ id: String, continuation: AsyncThrowingStream<AIStreamResult, Error>.Continuation, ownership: BackgroundOwnership) async throws {
 		continuation.yield(.init(type: "content", text: nil, reasoning: "Background job started, polling for updates...\n"))
-		var previous: OpenAIResponse.Status?; var count = 0
+		var previous: OpenAIResponse.Status?; var count = 0; var transientFailures = 0
 		while true {
 			try Task.checkCancellation()
-			let response = try await fetchResponse(id: id); count += 1
+			let response: OpenAIResponse
+			do { response = try await fetchResponse(id: id); transientFailures = 0; count += 1 }
+			catch where !Task.isCancelled && Self.isTransientPollFailure(error) && transientFailures < Self.maxConsecutivePollFailures {
+				// The job is still running server-side; a lost status fetch is not its failure.
+				transientFailures += 1; count += 1
+				try await sleep(.seconds(min(2 + count, 10))); continue
+			}
 			if [.completed, .failed, .incomplete, .cancelled].contains(response.status) { await ownership.finish() }
 			try Task.checkCancellation()
 			if response.status != previous {
@@ -193,7 +209,7 @@ public final class OpenAIClient: AIClientProviding, OpenAIResponsesProviding, Se
 		let choice = (body["choices"] as? [[String: Any]])?.first
 		let message = choice?["message"] as? [String: Any]
 		let usage = body["usage"] as? [String: Any]
-		return .init(text: message?["content"] as? String ?? "", promptTokens: usage?["prompt_tokens"] as? Int, completionTokens: usage?["completion_tokens"] as? Int)
+		return .init(text: message?["content"] as? String ?? "", promptTokens: usage?["prompt_tokens"] as? Int, completionTokens: usage?["completion_tokens"] as? Int, stopReason: choice?["finish_reason"] as? String)
 	}
 	private func chatBody(_ input: AIRequest, profile: OpenAIRequestProfile, streaming: Bool) throws -> Data {
 		var body: [String: Any] = ["model": input.model.id, "stream": streaming, "messages": input.messages.map { ["role": $0.role.rawValue, "content": $0.text] }]
@@ -210,14 +226,15 @@ public final class OpenAIClient: AIClientProviding, OpenAIResponsesProviding, Se
 		let body = profile.usesResponsesAPI ? try JSONEncoder().encode(OpenAIResponseParameters(request: input, profile: profile, streaming: true)) : try chatBody(input, profile: profile, streaming: true)
 		let (bytes, response) = try await streamingHTTP.bytes(for: request(path: profile.usesResponsesAPI ? "responses" : "chat/completions", body: body))
 		guard response.statusCode == 200 else {
-			var data = Data(); for try await byte in bytes { data.append(byte) }; throw failure(status: response.statusCode, data: data)
+			// Bounded: the body is only read for its error message.
+			var data = Data(); for try await byte in bytes { data.append(byte); if data.count > 10_000 { break } }; throw failure(status: response.statusCode, data: data)
 		}
-		var prompt: Int?, completion: Int?
+		var prompt: Int?, completion: Int?, finishReason: String?, sawDone = false
 		for try await line in bytes.lines {
 			try Task.checkCancellation()
 			guard line.hasPrefix("data:") else { continue }
 			let text = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
-			if text == "[DONE]" { break }
+			if text == "[DONE]" { sawDone = true; break }
 			guard !text.isEmpty else { continue }
 			let value = try object(Data(text.utf8))
 			if profile.usesResponsesAPI {
@@ -236,14 +253,26 @@ public final class OpenAIClient: AIClientProviding, OpenAIResponsesProviding, Se
 				default: continue
 				}
 			} else {
+				// A provider failing after the 200 reports it in-band; it is not a completion.
+				if let error = value["error"], !(error is NSNull) { throw streamError(error) }
 				if let usage = value["usage"] as? [String: Any] { prompt = usage["prompt_tokens"] as? Int; completion = usage["completion_tokens"] as? Int }
-				let delta = (value["choices"] as? [[String: Any]])?.first?["delta"] as? [String: Any] ?? [:]
+				let choice = (value["choices"] as? [[String: Any]])?.first
+				let delta = choice?["delta"] as? [String: Any] ?? [:]
 				let content = delta["content"] as? String ?? "", reasoning = delta["reasoning_content"] as? String ?? ""
 				if !content.isEmpty || !reasoning.isEmpty { continuation.yield(.init(type: "content", text: content, reasoning: reasoning, promptTokens: prompt, completionTokens: completion)) }
+				if let reason = choice?["finish_reason"] as? String { finishReason = reason }
 			}
 		}
 		try Task.checkCancellation()
-		continuation.yield(.init(type: "message_stop", text: nil, promptTokens: prompt, completionTokens: completion))
+		// Without [DONE] or a finish reason the body was cut off, not completed.
+		guard sawDone || finishReason != nil else { throw AIProviderError.invalidResponse(detail: "The stream ended before the server signalled completion.") }
+		// `length` and `content_filter` stay distinguishable from `stop`.
+		continuation.yield(.init(type: "message_stop", text: nil, promptTokens: prompt, completionTokens: completion, stopReason: finishReason))
+	}
+	private func streamError(_ value: Any) -> OpenAIClientError {
+		guard let error = value as? [String: Any] else { return .init(message: value as? String ?? "OpenAI error (no additional details)") }
+		let code = error["code"] as? String ?? (error["code"] as? NSNumber)?.stringValue
+		return .init(code: code, message: error["message"] as? String ?? code.map { "OpenAI error (\($0))" } ?? "OpenAI error (no additional details)")
 	}
 	private func validate(_ input: AIRequest) throws {
 		guard input.attachments.isEmpty, !input.messages.contains(where: { $0.role == .tool }) else { throw AIProviderError.invalidConfiguration(detail: "This OpenAI client supports text conversations only.") }

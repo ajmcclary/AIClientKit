@@ -9,6 +9,10 @@ struct OpenAIWireFixture: Sendable {
 	init(_ bodies: [String], status: Int = 200, hang: Bool = false, onStop: (@Sendable () -> Void)? = nil) {
 		url = OpenAIWireURLProtocol.install(bodies.map { .init(body: Data($0.utf8), status: status, hang: hang) }, onStop: onStop)
 	}
+	/// One status per scripted response, for sequences that mix successes and failures.
+	init(responses: [(body: String, status: Int)]) {
+		url = OpenAIWireURLProtocol.install(responses.map { .init(body: Data($0.body.utf8), status: $0.status, hang: false) }, onStop: nil)
+	}
 	var requests: [URLRequest] { OpenAIWireURLProtocol.requests(url.host!) }
 	var stops: Int { OpenAIWireURLProtocol.stops(url.host!) }
 	func remove() { OpenAIWireURLProtocol.remove(url.host!) }
