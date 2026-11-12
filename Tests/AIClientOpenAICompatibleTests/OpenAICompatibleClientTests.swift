@@ -72,6 +72,21 @@ final class OpenAICompatibleClientTests: XCTestCase {
         XCTAssertEqual(count, 3)
     }
 
+    func testRetryAfterReplacesTheFixedBackoffAndAnOverlongWaitIsNotRetried() async throws {
+        let delays = RecordedDelays()
+        let http = ScriptedHTTPClient(responses: [.init(status: 429, body: Data(), headers: ["Retry-After": "12"]), .init(status: 503, body: Data(), headers: ["Retry-After": "not-a-number"]), .okCompletion("ready")])
+        let response = try await client(http, sleep: { await delays.add($0) }).complete(request())
+        XCTAssertEqual(response.text, "ready")
+        let recorded = await delays.values
+        XCTAssertEqual(recorded, [12, 2])
+
+        let tooLong = ScriptedHTTPClient(responses: [.init(status: 429, body: Data(), headers: ["Retry-After": "1e300"]), .okCompletion("late")])
+        do { _ = try await client(tooLong).complete(request()); XCTFail("Expected the rate limit to surface") }
+        catch let error as CustomOpenAIProviderError { XCTAssertEqual(error.statusCode, 429) }
+        let count = await tooLong.state.calls.count
+        XCTAssertEqual(count, 1)
+    }
+
     func testAuthenticationErrorRetainsServerDetailsAndDoesNotRetry() async throws {
         let http = ScriptedHTTPClient(responses: [.init(status: 401, body: Data("{\"error\":{\"message\":\"denied\",\"type\":\"auth\",\"code\":\"invalid\"}}".utf8))])
         do { _ = try await client(http).complete(request()); XCTFail("Expected authentication failure") }
@@ -92,6 +107,17 @@ final class OpenAICompatibleClientTests: XCTestCase {
         XCTAssertEqual(events.first?.text, "fallback")
         let count = await http.state.calls.count
         XCTAssertEqual(count, 1)
+    }
+
+    func testNonStreamingFinishReasonReachesTheResultAndTheStopEvent() async throws {
+        let truncated = ScriptedResponse(status: 200, body: Data("{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"cut\"},\"finish_reason\":\"length\"}]}".utf8))
+        let http = ScriptedHTTPClient(responses: [truncated, truncated])
+        let result = try await client(http).complete(request())
+        XCTAssertEqual(result.stopReason, "length")
+        var events: [AIStreamResult] = []
+        for try await event in try await client(http).stream(request(streaming: false)) { events.append(event) }
+        XCTAssertEqual(events.last?.type, "message_stop")
+        XCTAssertEqual(events.last?.stopReason, "length")
     }
 
     func testCancellationReachesAnInFlightCompletionAndAllowsIDReuse() async throws {
@@ -143,6 +169,7 @@ final class OpenAICompatibleClientTests: XCTestCase {
 private struct ScriptedResponse: Sendable {
     let status: Int
     let body: Data
+    var headers: [String: String]? = nil
     static func okCompletion(_ text: String) -> Self {
         .init(status: 200, body: Data("{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"\(text)\"}}]}".utf8))
     }
@@ -164,7 +191,7 @@ private final class ScriptedHTTPClient: AIHTTPClient, Sendable {
     init(responses: [ScriptedResponse]) { state = ScriptedHTTPState(responses) }
     func data(for request: URLRequest) async throws -> AIHTTPResponse {
         let response = try await state.next(request)
-        return AIHTTPResponse(data: response.body, http: HTTPURLResponse(url: request.url!, statusCode: response.status, httpVersion: "HTTP/1.1", headerFields: nil)!)
+        return AIHTTPResponse(data: response.body, http: HTTPURLResponse(url: request.url!, statusCode: response.status, httpVersion: "HTTP/1.1", headerFields: response.headers)!)
     }
     func bytes(for request: URLRequest) async throws -> (bytes: URLSession.AsyncBytes, http: HTTPURLResponse) { throw URLError(.unsupportedURL) }
 }

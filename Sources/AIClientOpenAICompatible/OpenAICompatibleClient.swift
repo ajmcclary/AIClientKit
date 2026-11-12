@@ -294,6 +294,37 @@ public final class OpenAICompatibleClient: AIClientProviding, Sendable {
 		return false
 	}
 
+	/// Longest server-requested wait (`Retry-After`) honoured before a retry. A longer
+	/// request surfaces the error instead of sleeping or retrying early.
+	static let maxRetryAfterSeconds: TimeInterval = 60
+
+	/// Parses `Retry-After` as delta-seconds or an HTTP-date. Returns nil when the
+	/// header is absent or unusable (non-numeric, negative, NaN or infinite).
+	static func retryAfterSeconds(_ response: HTTPURLResponse, now: Date = Date()) -> TimeInterval? {
+		guard let raw = response.value(forHTTPHeaderField: "Retry-After")?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
+		if let seconds = Double(raw) { return seconds.isFinite && seconds >= 0 ? seconds : nil }
+		let formatter = DateFormatter()
+		formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = TimeZone(identifier: "GMT")
+		formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+		guard let date = formatter.date(from: raw) else { return nil }
+		return max(0, date.timeIntervalSince(now))
+	}
+
+	/// The wait before the next attempt, or nil when the error must not be retried.
+	/// A usable `Retry-After` replaces the fixed backoff; one over the cap is final.
+	private func retryDelay(for error: Error, retryAfter: TimeInterval?, fallback: TimeInterval) -> TimeInterval? {
+		guard isRetryableError(error) else { return nil }
+		guard let retryAfter else { return fallback }
+		return retryAfter <= Self.maxRetryAfterSeconds ? retryAfter : nil
+	}
+
+	/// The payload of an SSE `data` field. The space after the colon is optional.
+	static func ssePayload(_ line: String) -> String? {
+		guard line.hasPrefix("data:") else { return nil }
+		let value = line.dropFirst(5)
+		return String(value.first == " " ? value.dropFirst() : value)
+	}
+
 	/// Maps HTTP status code and response data to appropriate error with parsed details.
 	private func mapHTTPError(statusCode: Int, data: Data, context: String = "") -> CustomOpenAIProviderError {
 		let parsedDetail = parseErrorBody(data)
@@ -328,7 +359,7 @@ public final class OpenAICompatibleClient: AIClientProviding, Sendable {
 		maxAttempts: Int = 3,
 		initialDelay: TimeInterval = 1.0,
 		maxDelay: TimeInterval = 10.0,
-		operation: () async throws -> T
+		operation: (_ retryAfter: inout TimeInterval?) async throws -> T
 	) async throws -> T {
 		var lastError: Error?
 		var currentDelay = initialDelay
@@ -337,8 +368,9 @@ public final class OpenAICompatibleClient: AIClientProviding, Sendable {
 			if Task.isCancelled {
 				throw CancellationError()
 			}
+			var retryAfter: TimeInterval?
 			do {
-				return try await operation()
+				return try await operation(&retryAfter)
 			} catch {
 				lastError = error
 
@@ -347,15 +379,15 @@ public final class OpenAICompatibleClient: AIClientProviding, Sendable {
 				}
 
 				// Don't retry on non-retryable errors
-				guard isRetryableError(error) && attempt < maxAttempts else {
+				guard attempt < maxAttempts, let delay = retryDelay(for: error, retryAfter: retryAfter, fallback: currentDelay) else {
 					throw error
 				}
 
 				// Log retry attempt (in debug builds)
-				diagnostics("[CustomOpenAIProvider] Attempt \(attempt) failed: \(error.localizedDescription). Retrying in \(currentDelay)s...")
+				diagnostics("[CustomOpenAIProvider] Attempt \(attempt) failed: \(error.localizedDescription). Retrying in \(delay)s...")
 
 				// Wait before retrying with exponential backoff
-				try await sleep(currentDelay)
+				try await sleep(delay)
 				currentDelay = min(currentDelay * 2, maxDelay)
 			}
 		}
@@ -402,7 +434,7 @@ public final class OpenAICompatibleClient: AIClientProviding, Sendable {
 		}
 
 		// Use retry logic for transient errors (5xx, rate limits, network issues)
-		return try await withRetry(maxAttempts: 3) {
+		return try await withRetry(maxAttempts: 3) { retryAfter in
 			let request = try self.createCompletionRequest(
 				messages: messages,
 				modelName: input.model.id,
@@ -413,15 +445,16 @@ public final class OpenAICompatibleClient: AIClientProviding, Sendable {
 			let response = try await httpClient.data(for: request)
 
 			guard response.http.statusCode == 200 else {
+				retryAfter = Self.retryAfterSeconds(response.http)
 				throw self.mapHTTPError(statusCode: response.http.statusCode, data: response.data, context: "Chat completion")
 			}
 
 			do {
 				let chatResponse = try await AIHTTPDecoding.decode(ChatResponse.self, from: response.data)
-				guard let content = chatResponse.choices.first?.message.content else {
+				guard let choice = chatResponse.choices.first else {
 					throw CustomOpenAIProviderError.invalidResponse(message: "No content in response")
 				}
-				return AICompletionResult(text: content, promptTokens: nil, completionTokens: nil)
+				return AICompletionResult(text: choice.message.content, promptTokens: nil, completionTokens: nil, stopReason: choice.finish_reason)
 			} catch let decodeError as DecodingError {
 				// Try to extract error message from response if decoding fails
 				let errorDetail = self.parseErrorBody(response.data)
@@ -437,7 +470,7 @@ public final class OpenAICompatibleClient: AIClientProviding, Sendable {
 			let completeText = try await performCompletion(input)
 			return AsyncThrowingStream { continuation in
 				continuation.yield(AIStreamResult(type: "content", text: completeText.text, reasoning: nil, promptTokens: nil, completionTokens: nil))
-				continuation.yield(AIStreamResult(type: "message_stop", text: nil, reasoning: nil, promptTokens: nil, completionTokens: nil))
+				continuation.yield(AIStreamResult(type: "message_stop", text: nil, reasoning: nil, promptTokens: nil, completionTokens: nil, stopReason: completeText.stopReason))
 				continuation.finish()
 			}
 		}
@@ -455,12 +488,18 @@ public final class OpenAICompatibleClient: AIClientProviding, Sendable {
 				var currentDelay: TimeInterval = 1.0
 				let maxAttempts = 3
 				let maxDelay: TimeInterval = 10.0
+				// Once text has reached the consumer, a failure is final: a new attempt
+				// would replay the answer from its beginning into the same stream.
+				var yieldedContent = false
 
 				for attempt in 1...maxAttempts {
 					if Task.isCancelled {
 						continuation.finish()
 						return
 					}
+					var retryAfter: TimeInterval?
+					// The server reported the failure in the stream itself; never re-send.
+					var inBandError = false
 
 					do {
 						let request = try self.createCompletionRequest(
@@ -484,10 +523,12 @@ public final class OpenAICompatibleClient: AIClientProviding, Sendable {
 							} catch {
 								// Ignore read errors when collecting error body
 							}
+							retryAfter = Self.retryAfterSeconds(httpResponse)
 							throw self.mapHTTPError(statusCode: httpResponse.statusCode, data: errorData, context: "Stream request")
 						}
 
 						// Successfully connected - process the stream
+						var completed = false
 						for try await line in bytes.lines {
 							if Task.isCancelled {
 								throw CancellationError()
@@ -498,13 +539,12 @@ public final class OpenAICompatibleClient: AIClientProviding, Sendable {
 								continue // Next line will contain the error data
 							}
 
-							guard line.hasPrefix("data: ") else { continue }
-
-							let payload = String(line.dropFirst(6))
+							guard let payload = Self.ssePayload(line) else { continue }
 
 							// Handle [DONE] signal
 							if payload == "[DONE]" {
 								continuation.yield(AIStreamResult(type: "message_stop", text: nil, reasoning: nil, promptTokens: nil, completionTokens: nil))
+								completed = true
 								break
 							}
 
@@ -512,8 +552,9 @@ public final class OpenAICompatibleClient: AIClientProviding, Sendable {
 
 							// Try to decode as error response first
 							if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-							   let _ = errorJson["error"] as? [String: Any] {
+							   errorJson["error"] is [String: Any] || errorJson["error"] is String {
 								let errorMessage = self.parseErrorBody(data) ?? "Stream error"
+								inBandError = true
 								throw CustomOpenAIProviderError.serverError(message: errorMessage)
 							}
 
@@ -524,15 +565,22 @@ public final class OpenAICompatibleClient: AIClientProviding, Sendable {
 							}
 
 							if let content = choice.delta.content {
+								if !content.isEmpty { yieldedContent = true }
 								continuation.yield(AIStreamResult(type: "content", text: content, reasoning: nil, promptTokens: nil, completionTokens: nil))
 							}
 
-							if choice.finish_reason != nil {
-								continuation.yield(AIStreamResult(type: "message_stop", text: nil, reasoning: nil, promptTokens: nil, completionTokens: nil))
+							if let reason = choice.finish_reason {
+								// `length` and `content_filter` stay distinguishable from `stop`.
+								continuation.yield(AIStreamResult(type: "message_stop", text: nil, reasoning: nil, promptTokens: nil, completionTokens: nil, stopReason: reason))
+								completed = true
 								break
 							}
 						}
 
+						// End of body without [DONE] or a finish reason: the response was cut off.
+						guard completed else {
+							throw CustomOpenAIProviderError.invalidResponse(message: "The stream ended before the server signalled completion.")
+						}
 						continuation.finish()
 						return // Success - exit retry loop
 
@@ -545,15 +593,16 @@ public final class OpenAICompatibleClient: AIClientProviding, Sendable {
 						}
 
 						// Check if error is retryable and we have attempts left
-						guard self.isRetryableError(error) && attempt < maxAttempts else {
+						guard !yieldedContent, !inBandError, attempt < maxAttempts,
+						      let delay = self.retryDelay(for: error, retryAfter: retryAfter, fallback: currentDelay) else {
 							continuation.finish(throwing: error)
 							return
 						}
 
-								diagnostics("[CustomOpenAIProvider] Stream attempt \(attempt) failed: \(error.localizedDescription). Retrying in \(currentDelay)s...")
+								diagnostics("[CustomOpenAIProvider] Stream attempt \(attempt) failed: \(error.localizedDescription). Retrying in \(delay)s...")
 
 						// Wait before retrying
-						try? await self.sleep(currentDelay)
+						try? await self.sleep(delay)
 						currentDelay = min(currentDelay * 2, maxDelay)
 					}
 				}

@@ -78,11 +78,15 @@ public struct AICompletionResult: Sendable {
 	public let promptTokens: Int?
 	public let completionTokens: Int?
 	public let cost: Double?
+	/// Provider finish reason when reported (for example `stop` or `length`), so a
+	/// truncated completion is distinguishable from a normal one.
+	public let stopReason: String?
 
-	public init(text: String, promptTokens: Int? = nil, completionTokens: Int? = nil, cost: Double? = nil) {
+	public init(text: String, promptTokens: Int? = nil, completionTokens: Int? = nil, cost: Double? = nil, stopReason: String? = nil) {
 		self.text = text
 		self.promptTokens = promptTokens
 		self.completionTokens = completionTokens
 		self.cost = cost
+		self.stopReason = stopReason
 	}
 }
