@@ -88,6 +88,27 @@ final class StorageIsolationTests: XCTestCase, @unchecked Sendable {
 		let selected = AIStorageRuntimePolicy.select(for: good, policy: .ephemeralOnly, persistent: { persistentConstructed = true; return AIEphemeralSecureKeyValueStore() }, ephemeral: { AIEphemeralSecureKeyValueStore() })
 		XCTAssertFalse(persistentConstructed); XCTAssertEqual(selected.kind, .ephemeral)
 	}
+	func testFailedOverwriteKeepsTheStoredSecret() throws {
+		let access = MemoryKeychain(), s = store(access)
+		try s.save("fake-key-old", for: "OpenAIAPI", withIntegrityProtection: false)
+		access.rejectCredentialWrites = true
+		XCTAssertThrowsError(try s.save("fake-key-new", for: "OpenAIAPI", withIntegrityProtection: false))
+		XCTAssertEqual(try s.get(for: "OpenAIAPI", verifyIntegrity: false), "fake-key-old")
+		access.rejectCredentialWrites = false
+		try s.save("fake-key-new", for: "OpenAIAPI", withIntegrityProtection: false)
+		XCTAssertEqual(try s.get(for: "OpenAIAPI", verifyIntegrity: false), "fake-key-new")
+		XCTAssertEqual(access.records.values.filter { $0.accessibility == .afterFirstUnlock }.count, 1)
+	}
+	func testDefaultUpdateRestoresThePreviousDataWhenTheReplacementCannotBeAdded() throws {
+		let access = AddRemoveOnlyKeychain(), s = AIKeychainStore(namespace: .application(identifier: "fixture.app"), access: access, environment: environment())
+		try s.save("fake-key-old", for: "OpenAIAPI", withIntegrityProtection: false)
+		access.rejectedData = Data("fake-key-new".utf8)
+		XCTAssertThrowsError(try s.save("fake-key-new", for: "OpenAIAPI", withIntegrityProtection: false))
+		XCTAssertEqual(try s.get(for: "OpenAIAPI", verifyIntegrity: false), "fake-key-old")
+		access.rejectedData = nil
+		try s.save("fake-key-new", for: "OpenAIAPI", withIntegrityProtection: false)
+		XCTAssertEqual(try s.get(for: "OpenAIAPI", verifyIntegrity: false), "fake-key-new")
+	}
 	func testPreferenceSuitesAndLegacyProviderPayloadRemainIsolated() throws {
 		let names = (0..<3).map { _ in "AIStorageTests."+UUID().uuidString }
 		let defaults = names.map { UserDefaults(suiteName: $0)! }
@@ -107,20 +128,46 @@ final class StorageIsolationTests: XCTestCase, @unchecked Sendable {
 private final class MemoryKeychain: AIKeychainAccess, Sendable {
 	struct Key: Hashable, Sendable { let service: String; let account: String }
 	struct Record: Sendable { let data: Data; let accessibility: AIKeychainAccessibility; let synchronizable: Bool }
-	private struct State { var records: [Key: Record] = [:]; var rejectInstall = false; var installAdds = 0 }
+	private struct State { var records: [Key: Record] = [:]; var rejectInstall = false; var installAdds = 0; var rejectCredentialWrites = false }
 	private let state = Mutex(State())
 	var records: [Key: Record] { state.withLock { $0.records } }
 	var installSecretAdds: Int { state.withLock { $0.installAdds } }
 	var rejectInstallSecret: Bool { get { state.withLock { $0.rejectInstall } } set { state.withLock { $0.rejectInstall = newValue } } }
+	/// Simulates a keychain that refuses credential writes (for example, a denied ACL prompt).
+	var rejectCredentialWrites: Bool { get { state.withLock { $0.rejectCredentialWrites } } set { state.withLock { $0.rejectCredentialWrites = newValue } } }
 	func read(service: String, account: String) throws -> Data? { state.withLock { $0.records[.init(service: service, account: account)]?.data } }
 	func add(service: String, account: String, data: Data, accessibility: AIKeychainAccessibility, synchronizable: Bool) throws {
 		try state.withLock {
 			if accessibility == .afterFirstUnlockDeviceOnly && $0.rejectInstall { throw AIKeychainError.unexpectedStatus(-1) }
 			let key = Key(service: service, account: account); guard $0.records[key] == nil else { throw AIKeychainError.duplicateItem }
+			if accessibility == .afterFirstUnlock && $0.rejectCredentialWrites { throw AIKeychainError.unexpectedStatus(-25308) }
 			$0.records[key] = .init(data: data, accessibility: accessibility, synchronizable: synchronizable)
 			if accessibility == .afterFirstUnlockDeviceOnly { $0.installAdds += 1 }
 		}
 	}
+	func update(service: String, account: String, data: Data, accessibility: AIKeychainAccessibility) throws {
+		try state.withLock {
+			let key = Key(service: service, account: account); guard let existing = $0.records[key] else { throw AIKeychainError.itemNotFound }
+			if $0.rejectCredentialWrites { throw AIKeychainError.unexpectedStatus(-25308) }
+			$0.records[key] = .init(data: data, accessibility: existing.accessibility, synchronizable: existing.synchronizable)
+		}
+	}
 	func remove(service: String, account: String) throws { _ = state.withLock { $0.records.removeValue(forKey: .init(service: service, account: account)) } }
 	func replace(service: String, account: String, data: Data) { state.withLock { $0.records[.init(service: service, account: account)] = .init(data: data, accessibility: .afterFirstUnlock, synchronizable: false) } }
+}
+
+/// A conformer with no in-place update, exercising the protocol's default replacement.
+private final class AddRemoveOnlyKeychain: AIKeychainAccess, Sendable {
+	private struct State { var records: [String: Data] = [:]; var rejectedData: Data? }
+	private let state = Mutex(State())
+	var rejectedData: Data? { get { state.withLock { $0.rejectedData } } set { state.withLock { $0.rejectedData = newValue } } }
+	func read(service: String, account: String) throws -> Data? { state.withLock { $0.records[service + "/" + account] } }
+	func add(service: String, account: String, data: Data, accessibility: AIKeychainAccessibility, synchronizable: Bool) throws {
+		try state.withLock {
+			guard $0.records[service + "/" + account] == nil else { throw AIKeychainError.duplicateItem }
+			if data == $0.rejectedData { throw AIKeychainError.unexpectedStatus(-25308) }
+			$0.records[service + "/" + account] = data
+		}
+	}
+	func remove(service: String, account: String) throws { _ = state.withLock { $0.records.removeValue(forKey: service + "/" + account) } }
 }

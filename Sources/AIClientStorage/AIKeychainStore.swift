@@ -15,8 +15,17 @@ public final class AIKeychainStore: AISecureKeyValueBackend, Sendable {
 	}
 	public func save(_ value: String, for key: String, withIntegrityProtection: Bool = true) throws {
 		let data = withIntegrityProtection ? try AIIntegrityEnvelope.encode(value, key: integrityKey()) : Data(value.utf8)
-		try? delete(for: key)
-		try access.add(service: namespace.serviceName, account: namespace.account(for: key), data: data, accessibility: .afterFirstUnlock, synchronizable: false)
+		let service = namespace.serviceName, account = namespace.account(for: key)
+		// Add, or update in place when the item exists. Deleting first would lose the
+		// stored secret whenever the following add failed.
+		do { try access.add(service: service, account: account, data: data, accessibility: .afterFirstUnlock, synchronizable: false) }
+		catch AIKeychainError.duplicateItem {
+			do { try access.update(service: service, account: account, data: data, accessibility: .afterFirstUnlock) }
+			catch AIKeychainError.itemNotFound {
+				// Removed between the two calls.
+				try access.add(service: service, account: account, data: data, accessibility: .afterFirstUnlock, synchronizable: false)
+			}
+		}
 	}
 	public func get(for key: String, verifyIntegrity: Bool = true) throws -> String {
 		let data = try getRawData(for: key)
