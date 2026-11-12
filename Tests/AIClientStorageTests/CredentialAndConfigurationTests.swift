@@ -59,6 +59,38 @@ final class CredentialAndConfigurationTests: XCTestCase, @unchecked Sendable {
 		access.releaseRead(); let old = try await read.value; XCTAssertEqual(old, "old")
 		let cached = try await store.credential(for: .openAI, endpointID: nil); XCTAssertEqual(cached, "new")
 	}
+	func testRotationAndDeletionThroughOneStoreReachEveryOtherStoreForTheSameAccount() async throws {
+		let access = CredentialAccess(), name = "rotation." + UUID().uuidString
+		let account: @Sendable (AIProviderType, String?) -> String = { provider, _ in "\(name).\(provider)" }
+		let window = AIAccountCredentialStore(access: access, account: account, cacheWritePolicy: .legacyBeforeStorage)
+		let settings = AIAccountCredentialStore(access: access, account: account, cacheWritePolicy: .legacyBeforeStorage)
+		try await settings.setCredential("fake-key-one", for: .openAI, endpointID: nil)
+		let first = try await window.credential(for: .openAI, endpointID: nil); XCTAssertEqual(first, "fake-key-one")
+		try await settings.setCredential("fake-key-two", for: .openAI, endpointID: nil)
+		let rotated = try await window.credential(for: .openAI, endpointID: nil); XCTAssertEqual(rotated, "fake-key-two")
+		try await settings.setCredential(nil, for: .openAI, endpointID: nil)
+		let deleted = try await window.credential(for: .openAI, endpointID: nil); XCTAssertNil(deleted)
+		// Another account is untouched by these writes.
+		try await settings.setCredential("fake-key-other", for: .anthropic, endpointID: nil)
+		let other = try await window.credential(for: .anthropic, endpointID: nil); XCTAssertEqual(other, "fake-key-other")
+	}
+	func testReadSuspendedAcrossAnotherStoresWriteIsNotCached() async throws {
+		let access = SuspendedCredentialAccess(), name = "suspended." + UUID().uuidString
+		let reader = AIAccountCredentialStore(access: access, account: { _, _ in name })
+		let writer = AIAccountCredentialStore(access: access, account: { _, _ in name })
+		let read = Task { try await reader.credential(for: .openAI, endpointID: nil) }
+		try await waitForRead(access)
+		try await writer.setCredential("new", for: .openAI, endpointID: nil)
+		access.releaseRead(); let old = try await read.value; XCTAssertEqual(old, "old")
+		let reread = Task { try await reader.credential(for: .openAI, endpointID: nil) }
+		try await waitForRead(access); access.releaseRead()
+		let fresh = try await reread.value; XCTAssertEqual(fresh, "new")
+	}
+	private func waitForRead(_ access: SuspendedCredentialAccess) async throws {
+		let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+		while !access.readStarted && ContinuousClock.now < deadline { await Task.yield() }
+		XCTAssertTrue(access.readStarted)
+	}
 }
 
 private final class SuspendedCredentialAccess: AISecureCredentialAccess, Sendable {
