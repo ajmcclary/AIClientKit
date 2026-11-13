@@ -168,7 +168,8 @@ public final class OpenAICompatibleClient: AIClientProviding, Sendable {
 			struct Delta: Codable {
 				let content: String?
 			}
-			let delta: Delta
+			// Optional: a final chunk may carry only `finish_reason`.
+			let delta: Delta?
 			let finish_reason: String?
 		}
 		let choices: [Choice]
@@ -564,7 +565,7 @@ public final class OpenAICompatibleClient: AIClientProviding, Sendable {
 								continue
 							}
 
-							if let content = choice.delta.content {
+							if let content = choice.delta?.content {
 								if !content.isEmpty { yieldedContent = true }
 								continuation.yield(AIStreamResult(type: "content", text: content, reasoning: nil, promptTokens: nil, completionTokens: nil))
 							}

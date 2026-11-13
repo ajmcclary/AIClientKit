@@ -126,6 +126,16 @@ final class OpenAICompatibleStreamingTests: XCTestCase {
         }
     }
 
+    func testFinalChunkWithOnlyAFinishReasonEndsTheStreamNormally() async throws {
+        let text = chunk("whole answer") + "data: {\"choices\":[{\"index\":0,\"finish_reason\":\"stop\"}]}\n\n"
+        let fixture = FixtureURLProtocol.install([.init(status: 200, chunks: [Data(text.utf8)])])
+        defer { FixtureURLProtocol.remove(fixture.host!) }
+        let (events, error) = await drain(try await provider(fixture).stream(input()))
+        XCTAssertNil(error)
+        XCTAssertEqual(events.map(\.type), ["content", "message_stop"])
+        XCTAssertEqual(events.last?.stopReason, "stop")
+    }
+
     func testStreamThatEndsWithoutACompletionSignalThrows() async throws {
         let fixture = FixtureURLProtocol.install([
             .init(status: 200, chunks: [Data(chunk("cut").utf8)]),
