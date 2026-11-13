@@ -173,7 +173,7 @@ public final class OpenAIClient: AIClientProviding, OpenAIResponsesProviding, Se
 		while true {
 			try Task.checkCancellation()
 			// The remote job is left running; whether to cancel it is the caller's call.
-			guard now() < deadline else { throw OpenAIBackgroundPollingError.deadlineExceeded(backgroundPollingDeadline) }
+			guard now() < deadline else { throw OpenAIBackgroundPollingError.deadlineExceeded(backgroundPollingDeadline, responseID: id) }
 			let response: OpenAIResponse
 			do { response = try await fetchResponse(id: id); transientFailures = 0; count += 1 }
 			catch where !Task.isCancelled && Self.isTransientPollFailure(error) && transientFailures < Self.maxConsecutivePollFailures {
@@ -201,7 +201,7 @@ public final class OpenAIClient: AIClientProviding, OpenAIResponsesProviding, Se
 			default:
 				// Retained but not understood; stop instead of polling it forever.
 				unrecognized += 1
-				guard unrecognized < Self.maxConsecutiveUnrecognizedPollStatuses else { throw OpenAIBackgroundPollingError.unrecognizedStatus(response.status?.rawValue) }
+				guard unrecognized < Self.maxConsecutiveUnrecognizedPollStatuses else { throw OpenAIBackgroundPollingError.unrecognizedStatus(response.status?.rawValue, responseID: id) }
 				try await sleep(.seconds(min(2 + count, 10)))
 			}
 		}

@@ -111,16 +111,21 @@ public struct OpenAIClientError: Error, LocalizedError, Equatable, Sendable {
 }
 
 /// Why background-response polling stopped without a terminal status. The remote job is
-/// not cancelled; the caller decides whether to cancel it.
+/// not cancelled; the caller decides whether to cancel it, using `responseID`
+/// (`cancelResponse(id:)`), including for a job that `stream()` created itself.
 public enum OpenAIBackgroundPollingError: Error, LocalizedError, Equatable, Sendable {
 	/// The job kept reporting a status this client does not recognise (nil when the status was missing).
-	case unrecognizedStatus(String?)
+	case unrecognizedStatus(String?, responseID: String)
 	/// Polling ran past the client's overall background-polling deadline.
-	case deadlineExceeded(Duration)
+	case deadlineExceeded(Duration, responseID: String)
+	/// The background response that is still running server-side.
+	public var responseID: String {
+		switch self { case .unrecognizedStatus(_, let id), .deadlineExceeded(_, let id): return id }
+	}
 	public var errorDescription: String? {
 		switch self {
-		case .unrecognizedStatus(let status): return "Background job reported an unrecognised status '\(status ?? "missing")'."
-		case .deadlineExceeded(let deadline): return "Background job did not finish within \(deadline.components.seconds) seconds."
+		case .unrecognizedStatus(let status, _): return "Background job reported an unrecognised status '\(status ?? "missing")'."
+		case .deadlineExceeded(let deadline, _): return "Background job did not finish within \(deadline.components.seconds) seconds."
 		}
 	}
 }

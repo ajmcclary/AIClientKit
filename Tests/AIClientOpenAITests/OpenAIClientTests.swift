@@ -191,7 +191,7 @@ final class OpenAIClientTests: XCTestCase {
 		let bodies = Array(repeating: OpenAIWireFixture.response("requires_review"), count: limit - 1) + [OpenAIWireFixture.response("in_progress")] + Array(repeating: OpenAIWireFixture.response("future_status"), count: limit) + [OpenAIWireFixture.response()]
 		let f = OpenAIWireFixture(bodies); defer { f.remove() }
 		let (events, thrown) = await outcome(try await client(f).streamResponse(id: "resp_fixture"))
-		XCTAssertEqual(thrown as? OpenAIBackgroundPollingError, .unrecognizedStatus("future_status"))
+		XCTAssertEqual(thrown as? OpenAIBackgroundPollingError, .unrecognizedStatus("future_status", responseID: "resp_fixture"))
 		XCTAssertFalse(events.contains { $0.type == "message_stop" })
 		XCTAssertEqual(f.requests.count, 2 * limit)
 		XCTAssertFalse(f.requests.contains { $0.url?.path.hasSuffix("/cancel") == true })
@@ -204,10 +204,24 @@ final class OpenAIClientTests: XCTestCase {
 		                     sleep: { d in clock.withLock { $0 = $0.advanced(by: d) } },
 		                     backgroundPollingDeadline: .seconds(10), now: { clock.withLock { $0 } })
 		let (events, thrown) = await outcome(try await c.streamResponse(id: "resp_fixture"))
-		XCTAssertEqual(thrown as? OpenAIBackgroundPollingError, .deadlineExceeded(.seconds(10)))
+		XCTAssertEqual(thrown as? OpenAIBackgroundPollingError, .deadlineExceeded(.seconds(10), responseID: "resp_fixture"))
 		XCTAssertFalse(events.contains { $0.type == "message_stop" })
 		// Fetches at 0, 3 and 7 s; the 12 s check is past the deadline.
 		XCTAssertEqual(f.requests.count, 3)
+		XCTAssertFalse(f.requests.contains { $0.url?.path.hasSuffix("/cancel") == true })
+	}
+	func testJobCreatedByStreamIsIdentifiedWhenPollingGivesUp() async throws {
+		// stream() creates the background job itself; the error is the caller's only handle on it.
+		let f = OpenAIWireFixture(Array(repeating: OpenAIWireFixture.response("queued"), count: 20)); defer { f.remove() }
+		let clock = Mutex(ContinuousClock.now)
+		let http = URLSessionAIHTTPClient(configuration: f.configuration)
+		let c = OpenAIClient(apiKey: "fixture-key", configuration: .init(baseURL: f.url), httpClient: http, streamingHTTPClient: http,
+		                     sleep: { d in clock.withLock { $0 = $0.advanced(by: d) } },
+		                     backgroundPollingDeadline: .seconds(10), now: { clock.withLock { $0 } })
+		let (_, thrown) = await outcome(try await c.stream(input(responses: true, stream: false), profile: .init(usesResponsesAPI: true)))
+		let error = try XCTUnwrap(thrown as? OpenAIBackgroundPollingError)
+		XCTAssertEqual(error.responseID, "resp_fixture")
+		XCTAssertEqual(f.requests.first?.httpMethod, "POST")
 		XCTAssertFalse(f.requests.contains { $0.url?.path.hasSuffix("/cancel") == true })
 	}
 	func testErasedProviderUsesNeutralResponsesCapability() async throws {
