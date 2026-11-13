@@ -86,6 +86,21 @@ final class CredentialAndConfigurationTests: XCTestCase, @unchecked Sendable {
 		try await waitForRead(access); access.releaseRead()
 		let fresh = try await reread.value; XCTAssertEqual(fresh, "new")
 	}
+	func testConcurrentSavesFromTwoStoresNeverCacheTheLosingValue() async throws {
+		let access = BlockingFirstSaveAccess(), name = "race." + UUID().uuidString
+		let a = AIAccountCredentialStore(access: access, account: { _, _ in name })
+		let b = AIAccountCredentialStore(access: access, account: { _, _ in name })
+		// A's value reaches the keychain, then A stalls before it finishes; B saves over it meanwhile.
+		let first = Task { try await a.setCredential("fake-key-a", for: .openAI, endpointID: nil) }
+		let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+		while !access.firstSaveStored && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(2)) }
+		XCTAssertTrue(access.firstSaveStored)
+		try await b.setCredential("fake-key-b", for: .openAI, endpointID: nil)
+		access.releaseFirstSave(); try await first.value
+		XCTAssertEqual(access.stored, "fake-key-b")
+		let seenByA = try await a.credential(for: .openAI, endpointID: nil); XCTAssertEqual(seenByA, "fake-key-b")
+		let seenByB = try await b.credential(for: .openAI, endpointID: nil); XCTAssertEqual(seenByB, "fake-key-b")
+	}
 	private func waitForRead(_ access: SuspendedCredentialAccess) async throws {
 		let deadline = ContinuousClock.now.advanced(by: .seconds(3))
 		while !access.readStarted && ContinuousClock.now < deadline { await Task.yield() }
@@ -113,4 +128,20 @@ private final class CredentialAccess: AISecureCredentialAccess, Sendable {
 	func saveAPIKey(_ value: String, for identifier: String) throws { try state.withLock { if $0.rejectWrites { throw AIKeychainError.unexpectedStatus(-1) }; $0.values[identifier] = value } }
 	func getAPIKey(for identifier: String) async throws -> String? { state.withLock { $0.values[identifier] } }
 	func deleteAPIKey(for identifier: String) throws { state.withLock { $0.values[identifier] = nil } }
+}
+/// The first save stores its value and then blocks until released, so another store's
+/// whole save can land between it and the end of the first store's write.
+private final class BlockingFirstSaveAccess: AISecureCredentialAccess, Sendable {
+	private struct State { var value: String?; var saves = 0; var firstStored = false }
+	private let state = Mutex(State())
+	private let gate = DispatchSemaphore(value: 0)
+	var firstSaveStored: Bool { state.withLock { $0.firstStored } }
+	var stored: String? { state.withLock { $0.value } }
+	func releaseFirstSave() { gate.signal() }
+	func saveAPIKey(_ value: String, for identifier: String) throws {
+		let isFirst = state.withLock { s -> Bool in s.saves += 1; s.value = value; if s.saves == 1 { s.firstStored = true }; return s.saves == 1 }
+		if isFirst { gate.wait() }
+	}
+	func getAPIKey(for identifier: String) async throws -> String? { state.withLock { $0.value } }
+	func deleteAPIKey(for identifier: String) throws { state.withLock { $0.value = nil } }
 }

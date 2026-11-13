@@ -16,6 +16,15 @@ private final class AICredentialWriteRevisions: Sendable {
 	func bump(_ account: String) -> UInt64 {
 		revisions.withLock { state in let next = (state[account] ?? 0) &+ 1; state[account] = next; return next }
 	}
+	/// Ends a write that began with `bump` returning `started`. Returns the new revision
+	/// when no other bump (another write, here or in another store) happened in between,
+	/// so the written value is known to be the latest; nil when it may have lost a race.
+	func finishWrite(_ account: String, startedAt started: UInt64) -> UInt64? {
+		revisions.withLock { state in
+			let current = state[account] ?? 0, next = current &+ 1; state[account] = next
+			return current == started ? next : nil
+		}
+	}
 }
 
 /// Each instance owns its cache, but a write through any instance in the process
@@ -54,19 +63,22 @@ public actor AIAccountCredentialStore: AICredentialStoring {
 		pendingReads = pendingReads.filter { $0.value != key }
 		// Bump before the write so reads already in flight elsewhere are not cached,
 		// and after it so reads that started during the write are not cached either.
-		_ = revisions.bump(name)
+		// The written value is cached only if no other write overlapped this one.
+		let started = revisions.bump(name)
 		if let value {
-			if writePolicy == .legacyBeforeStorage { cache[key] = Entry(value: value, account: name, revision: revisions.current(name)) }
+			if writePolicy == .legacyBeforeStorage { cache[key] = Entry(value: value, account: name, revision: started) }
 			do { try access.saveAPIKey(value, for: name) } catch {
 				// The legacy policy keeps serving the attempted value from this instance.
-				if writePolicy == .legacyBeforeStorage { cache[key] = Entry(value: value, account: name, revision: revisions.bump(name)) }
-				else { _ = revisions.bump(name) }
+				let finished = revisions.finishWrite(name, startedAt: started)
+				if writePolicy == .legacyBeforeStorage, let finished { cache[key] = Entry(value: value, account: name, revision: finished) }
+				else { cache[key] = nil }
 				throw error
 			}
-			cache[key] = Entry(value: value, account: name, revision: revisions.bump(name))
+			if let finished = revisions.finishWrite(name, startedAt: started) { cache[key] = Entry(value: value, account: name, revision: finished) }
+			else { cache[key] = nil }
 		} else {
 			cache[key] = nil
-			defer { _ = revisions.bump(name) }
+			defer { _ = revisions.finishWrite(name, startedAt: started) }
 			try access.deleteAPIKey(for: name)
 		}
 	}
