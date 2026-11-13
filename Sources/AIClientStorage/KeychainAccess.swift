@@ -6,21 +6,13 @@ public enum AIKeychainAccessibility: Sendable { case afterFirstUnlock, afterFirs
 public protocol AIKeychainAccess: Sendable {
 	func read(service: String, account: String) throws -> Data?
 	func add(service: String, account: String, data: Data, accessibility: AIKeychainAccessibility, synchronizable: Bool) throws
-	/// Replaces an existing item's data. Throws `AIKeychainError.itemNotFound` when there
-	/// is no such item. An in-place update keeps the item's attributes; `accessibility`
-	/// applies only when an implementation has to re-create the item.
+	/// Replaces an existing item's data in place, atomically: on failure the previous
+	/// data must still be stored. Throws `AIKeychainError.itemNotFound` when there is no
+	/// such item. There is deliberately no default: `read`/`add`/`remove` cannot replace
+	/// an item without a window in which it is deleted, which loses the secret when the
+	/// re-add fails. `accessibility` is for implementations that must re-create the item.
 	func update(service: String, account: String, data: Data, accessibility: AIKeychainAccessibility) throws
 	func remove(service: String, account: String) throws
-}
-extension AIKeychainAccess {
-	/// Fallback for conformers without an in-place update: replace the item, and put
-	/// the previous data back if the replacement cannot be added.
-	public func update(service: String, account: String, data: Data, accessibility: AIKeychainAccessibility) throws {
-		guard let previous = try read(service: service, account: account) else { throw AIKeychainError.itemNotFound }
-		try remove(service: service, account: account)
-		do { try add(service: service, account: account, data: data, accessibility: accessibility, synchronizable: false) }
-		catch { try? add(service: service, account: account, data: previous, accessibility: accessibility, synchronizable: false); throw error }
-	}
 }
 public final class AISystemKeychainAccess: AIKeychainAccess, Sendable {
 	public init() {}

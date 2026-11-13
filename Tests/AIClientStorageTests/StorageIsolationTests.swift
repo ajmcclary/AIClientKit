@@ -99,16 +99,6 @@ final class StorageIsolationTests: XCTestCase, @unchecked Sendable {
 		XCTAssertEqual(try s.get(for: "OpenAIAPI", verifyIntegrity: false), "fake-key-new")
 		XCTAssertEqual(access.records.values.filter { $0.accessibility == .afterFirstUnlock }.count, 1)
 	}
-	func testDefaultUpdateRestoresThePreviousDataWhenTheReplacementCannotBeAdded() throws {
-		let access = AddRemoveOnlyKeychain(), s = AIKeychainStore(namespace: .application(identifier: "fixture.app"), access: access, environment: environment())
-		try s.save("fake-key-old", for: "OpenAIAPI", withIntegrityProtection: false)
-		access.rejectedData = Data("fake-key-new".utf8)
-		XCTAssertThrowsError(try s.save("fake-key-new", for: "OpenAIAPI", withIntegrityProtection: false))
-		XCTAssertEqual(try s.get(for: "OpenAIAPI", verifyIntegrity: false), "fake-key-old")
-		access.rejectedData = nil
-		try s.save("fake-key-new", for: "OpenAIAPI", withIntegrityProtection: false)
-		XCTAssertEqual(try s.get(for: "OpenAIAPI", verifyIntegrity: false), "fake-key-new")
-	}
 	func testPreferenceSuitesAndLegacyProviderPayloadRemainIsolated() throws {
 		let names = (0..<3).map { _ in "AIStorageTests."+UUID().uuidString }
 		let defaults = names.map { UserDefaults(suiteName: $0)! }
@@ -156,18 +146,3 @@ private final class MemoryKeychain: AIKeychainAccess, Sendable {
 	func replace(service: String, account: String, data: Data) { state.withLock { $0.records[.init(service: service, account: account)] = .init(data: data, accessibility: .afterFirstUnlock, synchronizable: false) } }
 }
 
-/// A conformer with no in-place update, exercising the protocol's default replacement.
-private final class AddRemoveOnlyKeychain: AIKeychainAccess, Sendable {
-	private struct State { var records: [String: Data] = [:]; var rejectedData: Data? }
-	private let state = Mutex(State())
-	var rejectedData: Data? { get { state.withLock { $0.rejectedData } } set { state.withLock { $0.rejectedData = newValue } } }
-	func read(service: String, account: String) throws -> Data? { state.withLock { $0.records[service + "/" + account] } }
-	func add(service: String, account: String, data: Data, accessibility: AIKeychainAccessibility, synchronizable: Bool) throws {
-		try state.withLock {
-			guard $0.records[service + "/" + account] == nil else { throw AIKeychainError.duplicateItem }
-			if data == $0.rejectedData { throw AIKeychainError.unexpectedStatus(-25308) }
-			$0.records[service + "/" + account] = data
-		}
-	}
-	func remove(service: String, account: String) throws { _ = state.withLock { $0.records.removeValue(forKey: service + "/" + account) } }
-}
