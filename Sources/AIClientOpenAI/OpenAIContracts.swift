@@ -110,6 +110,21 @@ public struct OpenAIClientError: Error, LocalizedError, Equatable, Sendable {
 	public init(statusCode: Int? = nil, code: String? = nil, message: String) { self.statusCode = statusCode; self.code = code; self.message = message }
 }
 
+/// Why background-response polling stopped without a terminal status. The remote job is
+/// not cancelled; the caller decides whether to cancel it.
+public enum OpenAIBackgroundPollingError: Error, LocalizedError, Equatable, Sendable {
+	/// The job kept reporting a status this client does not recognise (nil when the status was missing).
+	case unrecognizedStatus(String?)
+	/// Polling ran past the client's overall background-polling deadline.
+	case deadlineExceeded(Duration)
+	public var errorDescription: String? {
+		switch self {
+		case .unrecognizedStatus(let status): return "Background job reported an unrecognised status '\(status ?? "missing")'."
+		case .deadlineExceeded(let deadline): return "Background job did not finish within \(deadline.components.seconds) seconds."
+		}
+	}
+}
+
 public protocol OpenAIResponsesProviding: Sendable {
 	func createBackgroundResponse(_ request: AIRequest, profile: OpenAIRequestProfile) async throws -> OpenAIResponse
 	func fetchResponse(id: String) async throws -> OpenAIResponse

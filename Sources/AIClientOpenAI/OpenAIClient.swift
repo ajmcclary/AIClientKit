@@ -44,11 +44,20 @@ public final class OpenAIClient: AIClientProviding, OpenAIResponsesProviding, Se
 	private let streamingHTTP: any AIHTTPClient
 	private let sleep: @Sendable (Duration) async throws -> Void
 	private let profileResolver: @Sendable (AIRequest) -> OpenAIRequestProfile
+	private let backgroundPollingDeadline: Duration
+	private let now: @Sendable () -> ContinuousClock.Instant
 	private let requests = AIRequestRegistry()
+	/// Default overall limit on polling one background response.
+	public static let defaultBackgroundPollingDeadline: Duration = .seconds(2 * 60 * 60)
+	/// Consecutive polls with an unrecognised status before polling stops.
+	public static let maxConsecutiveUnrecognizedPollStatuses = 5
 	public init(apiKey: String, configuration: OpenAIClientConfiguration = .init(), httpClient: any AIHTTPClient,
 	            streamingHTTPClient: any AIHTTPClient, sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
-            profileResolver: @escaping @Sendable (AIRequest) -> OpenAIRequestProfile = { .catalogProfile(for: $0) }) {
+            profileResolver: @escaping @Sendable (AIRequest) -> OpenAIRequestProfile = { .catalogProfile(for: $0) },
+	            backgroundPollingDeadline: Duration = OpenAIClient.defaultBackgroundPollingDeadline,
+	            now: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now }) {
 		self.apiKey = apiKey; self.configuration = configuration; http = httpClient; streamingHTTP = streamingHTTPClient; self.sleep = sleep; self.profileResolver = profileResolver
+		self.backgroundPollingDeadline = backgroundPollingDeadline; self.now = now
 	}
 	public func cancel(requestID: UUID) async { await requests.cancel(requestID) }
 	public func models() async throws -> [AIModelDescriptor] {
@@ -159,9 +168,12 @@ public final class OpenAIClient: AIClientProviding, OpenAIResponsesProviding, Se
 	}
 	private func poll(_ id: String, continuation: AsyncThrowingStream<AIStreamResult, Error>.Continuation, ownership: BackgroundOwnership) async throws {
 		continuation.yield(.init(type: "content", text: nil, reasoning: "Background job started, polling for updates...\n"))
-		var previous: OpenAIResponse.Status?; var count = 0; var transientFailures = 0
+		var previous: OpenAIResponse.Status?; var count = 0; var transientFailures = 0; var unrecognized = 0
+		let deadline = now().advanced(by: backgroundPollingDeadline)
 		while true {
 			try Task.checkCancellation()
+			// The remote job is left running; whether to cancel it is the caller's call.
+			guard now() < deadline else { throw OpenAIBackgroundPollingError.deadlineExceeded(backgroundPollingDeadline) }
 			let response: OpenAIResponse
 			do { response = try await fetchResponse(id: id); transientFailures = 0; count += 1 }
 			catch where !Task.isCancelled && Self.isTransientPollFailure(error) && transientFailures < Self.maxConsecutivePollFailures {
@@ -184,7 +196,13 @@ public final class OpenAIClient: AIClientProviding, OpenAIResponsesProviding, Se
 			case .failed: throw AIProviderError.invalidResponse(detail: response.error?.message ?? "Background job failed.")
 			case .incomplete: throw AIProviderError.invalidResponse(detail: response.incompleteDetails?.reason ?? "Background job incomplete.")
 			case .cancelled: throw AIProviderError.invalidResponse(detail: "Background job was cancelled.")
-			default: try await sleep(.seconds(min(2 + count, 10)))
+			case .queued, .inProgress:
+				unrecognized = 0; try await sleep(.seconds(min(2 + count, 10)))
+			default:
+				// Retained but not understood; stop instead of polling it forever.
+				unrecognized += 1
+				guard unrecognized < Self.maxConsecutiveUnrecognizedPollStatuses else { throw OpenAIBackgroundPollingError.unrecognizedStatus(response.status?.rawValue) }
+				try await sleep(.seconds(min(2 + count, 10)))
 			}
 		}
 	}
