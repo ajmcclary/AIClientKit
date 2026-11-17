@@ -183,7 +183,28 @@ final class OpenAIClientTests: XCTestCase {
 		XCTAssertEqual(durations.withLock { $0 }, [.seconds(3), .seconds(4)]); XCTAssertEqual(f.requests.count, 3)
 		let failing = OpenAIWireFixture(responses: [(OpenAIWireFixture.response("queued"), 200), unavailable, unavailable, unavailable, unavailable, (OpenAIWireFixture.response(), 200)]); defer { failing.remove() }
 		let (_, thrown) = await outcome(try await client(failing).streamResponse(id: "resp_fixture"))
-		XCTAssertEqual((thrown as? OpenAIClientError)?.statusCode, 503); XCTAssertEqual(failing.requests.count, 5)
+		XCTAssertEqual((thrown as? OpenAIClientError)?.statusCode, 503)
+		// Five fetches, then the abandoned job is cancelled.
+		try await waitRequests(failing, 6)
+		XCTAssertEqual(failing.requests.map(\.httpMethod), ["GET", "GET", "GET", "GET", "GET", "POST"])
+		XCTAssertEqual(failing.requests.last?.url?.path, "/v1/responses/resp_fixture/cancel")
+	}
+	func testJobAbandonedAfterTransientPollFailuresIsCancelled() async throws {
+		// stream() creates the job; polling then loses contact with it for good. The job is still
+		// running and billing, so the client cancels it, riding out a failed cancel request too.
+		let unavailable = (body: "{\"error\":{\"message\":\"unavailable\"}}", status: 503)
+		// Three failures are ridden out; the fourth ends polling.
+		let polls = Array(repeating: unavailable, count: 4)
+		let f = OpenAIWireFixture(responses: [(OpenAIWireFixture.response("queued"), 200)] + polls + [unavailable, (OpenAIWireFixture.response("cancelled"), 200)]); defer { f.remove() }
+		let (events, thrown) = await outcome(try await client(f).stream(input(responses: true, stream: false), profile: .init(usesResponsesAPI: true)))
+		XCTAssertEqual((thrown as? OpenAIClientError)?.statusCode, 503)
+		XCTAssertFalse(events.contains { $0.type == "message_stop" })
+		try await waitRequests(f, 1 + polls.count + 2)
+		let cancels = f.requests.filter { $0.url?.path.hasSuffix("/cancel") == true }
+		XCTAssertEqual(cancels.count, 2)
+		XCTAssertEqual(cancels.map(\.httpMethod), ["POST", "POST"])
+		XCTAssertEqual(cancels.first?.url?.path, "/v1/responses/resp_fixture/cancel")
+		XCTAssertEqual(f.requests.prefix(1 + polls.count).filter { $0.url?.path.hasSuffix("/cancel") == true }.count, 0)
 	}
 	func testBackgroundPollingStopsOnARepeatedlyUnrecognisedStatus() async throws {
 		let limit = OpenAIClient.maxConsecutiveUnrecognizedPollStatuses

@@ -180,6 +180,10 @@ public final class OpenAIClient: AIClientProviding, OpenAIResponsesProviding, Se
 				// The job is still running server-side; a lost status fetch is not its failure.
 				transientFailures += 1; count += 1
 				try await sleep(.seconds(min(2 + count, 10))); continue
+			} catch where !Task.isCancelled && Self.isTransientPollFailure(error) {
+				// Polling gives up, but the job this run owns is still running and billing server-side.
+				if let remoteID = await ownership.cancel() { cancelAbandoned(remoteID) }
+				throw error
 			}
 			if [.completed, .failed, .incomplete, .cancelled].contains(response.status) { await ownership.finish() }
 			try Task.checkCancellation()
@@ -321,6 +325,17 @@ public final class OpenAIClient: AIClientProviding, OpenAIResponsesProviding, Se
 		let value = try? object(data); let error = value?["error"] as? [String: Any]
 		let message = "status code \(status)" + (error == nil ? "" : " " + (error?["message"] as? String ?? "NO ERROR MESSAGE PROVIDED"))
 		return .init(statusCode: status, code: error?["code"] as? String, message: message)
+	}
+	/// Cancels a job that polling abandoned after losing contact with it, without delaying the
+	/// error: the cancel request rides out the same transient failures the status fetches hit.
+	private func cancelAbandoned(_ id: String) {
+		Task {
+			for attempt in 0...Self.maxConsecutivePollFailures {
+				do { _ = try await self.cancelResponse(id: id); return }
+				catch where Self.isTransientPollFailure(error) && attempt < Self.maxConsecutivePollFailures { try? await self.sleep(.seconds(10)) }
+				catch { return }
+			}
+		}
 	}
 	private func cancelRemote(_ id: String) async {
 		// The caller may already be cancelled. A separate task lets the authenticated
