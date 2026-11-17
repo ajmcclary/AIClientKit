@@ -624,8 +624,8 @@ public final class OpenAICompatibleClient: AIClientProviding, Sendable {
 			messages: [.init(role: .system, text: "You are a helpful assistant."), .init(role: .user, text: "Say hello")],
 			options: .init(maxTokens: 10)
 		)
-		do { return try await complete(request).text.lowercased().contains("hello") }
-		catch { throw CustomOpenAIProviderError.invalidToken(message: "API key validation failed: \(error.localizedDescription)") }
+		_ = try await complete(request)
+		return true
 	}
 
 	private func shouldSkipTemperature(for model: String) -> Bool {

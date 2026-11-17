@@ -22,6 +22,19 @@ final class OpenAICompatibleClientTests: XCTestCase {
                                httpClient: http, streamingHttpClient: http, sleep: sleep)
     }
 
+    func testCredentialProbeAcceptsAnySuccessfulCompletionAndPreservesRequestErrors() async throws {
+        let success = client(ScriptedHTTPClient(responses: [.okCompletion("Hi!")]))
+        let connected = try await success.testAPIKey()
+        XCTAssertTrue(connected)
+        let failure = client(ScriptedHTTPClient(responses: [.init(status: 403, body: Data())]))
+        do {
+            _ = try await failure.testAPIKey()
+            XCTFail("A rejected request must throw")
+        } catch {
+            XCTAssertFalse(error.localizedDescription.contains("API key validation failed"))
+        }
+    }
+
     func testCompletionPreservesURLHeadersMessagesAndConfiguredTokenPrecedence() async throws {
         let http = ScriptedHTTPClient(responses: [.okCompletion("answer")])
         let value = try await client(http, configuredMaxTokens: 99, headers: ["Authorization": "Custom fixture", "content-type": "application/custom"]).complete(request(maxTokens: 20, temperature: 0.7))
